@@ -1,0 +1,10 @@
+tests:
+  # section.subsection
+  uart_to_can_core_utility.tests:
+    build_only: false
+    platform_allow:
+      - native_sim
+    integration_platforms:
+      - native_sim
+    tags: test_framework
+

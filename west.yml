@@ -1,0 +1,23 @@
+manifest:
+  # lowest version of the manifest file schema that can parse this file’s data
+  version: 1.2
+
+  projects:
+      - name: zephyr
+        # instead of a tag, `revision` also supports hashes and branches. e.g., `--freeze` will
+        # replace all revisions with their aactual commit hashes since tags can always be modified.
+        revision: v4.4.0
+        url: https://github.com/zephyrproject-rtos/zephyr
+        # explicitly adding Zephyr-specific West extensions is only needed in case no `import`s are
+        # used - which is almost never the case for Zephyr applications. with `import` in place,
+        # the `west.yml` in Zephyr's repository takes care of adding the required West extensions.
+        west-commands: scripts/west-commands.yml
+        import:
+          path-prefix: west_deps
+        # # defaults to west.yml, but added for good measure/demonstration purposes.
+        # file: west.yml
+          name-allowlist:
+            - cmsis
+            - cmsis_6
+            - hal_st
+            - hal_stm32

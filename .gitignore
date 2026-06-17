@@ -1,0 +1,11 @@
+*.jdebug*
+*.jlink*
+*.jflash*
+*.jrun*
+
+build/
+
+.cache/
+.vscode/
+
+.venv/
