@@ -15,11 +15,43 @@
 	leds {
 		compatible = "gpio-leds";
 		status = "okay";
-		indicator_led: indicator_led {
+		indicator_led: led {
 			label = "Indicator LED";
 			gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
 		};
 	};
+
+};
+
+&usart3{
+	status = "disabled";
+};
+&i2c1{
+	status = "disabled";
+};
+&i2c2{
+	status = "disabled";
+};
+&spi1{
+	status = "disabled";
+};
+&adc1{
+	status = "disabled";
+};
+&spi2{
+	status = "disabled";
+};
+
+&timers2{
+	status = "disabled";
+};
+
+&usb {
+	status = "disabled";
+};
+
+&pwm1{
+	status = "disabled";
 
 };
 
