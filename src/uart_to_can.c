@@ -254,6 +254,8 @@ copy_data_to_ring_buf_return:
   return err;
 }
 
+extern struct k_mem_slab my_slab;
+
 CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
                                        __maybe_unused struct uart_event *evt,
                                        __maybe_unused void *user_data) {
@@ -262,7 +264,14 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
   case UART_TX_DONE:
     // do something
     LOG_INF("UART event UART_TX_DONE type: %d\n", evt->type);
+// What you derived
+    struct uart_message *msg = (struct uart_message *)evt->data.tx.buf;
+    LOG_INF("Derived Struct Address: %p", (void *)msg);
 
+    // STOP HERE: Compare these printed addresses to the addresses 
+    // generated during k_mem_slab_alloc in your transmission function.
+    // If they do not match exactly, DO NOT call k_mem_slab_free yet.
+    k_mem_slab_free(&my_slab, msg);
     break;
 
   case UART_TX_ABORTED:
@@ -366,6 +375,6 @@ int send_can_message_to_uart(const struct can_frame *frame) {
 
 int send_uart_data_to_dev(const struct uart_message *message) {
   int err = uart_tx(uart_dev, message->buffer, message->buffer_size,
-                    10 * message->buffer_size);
+                    500 * message->buffer_size);
   return err;
 }
