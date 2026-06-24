@@ -273,14 +273,7 @@ int add_can_filter(const struct device *can_dev, uint32_t filter_id,
   return err;
 }
 
-int send_command_status_via_uart(struct uart_message *message) {
-  int err = k_msgq_put(&uart_message_msgq, message, K_NO_WAIT);
-  // 
-  if (err < 0) {
-    LOG_ERR("Failed to add message to UART msgq");
-  }
-  return err;
-}
+
 
 int send_version() {
   struct uart_message message;

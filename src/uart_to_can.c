@@ -41,12 +41,16 @@ static uint8_t dma_buf_b[DMA_BUF_SIZE];
 
 RING_BUF_DECLARE(rx_ring_buffer, RX_BUF_SIZE);
 
-K_MSGQ_DEFINE(uart_message_msgq, sizeof(struct uart_message), 10, 1);
+K_MEM_SLAB_DEFINE(uart_message_slab, sizeof(struct uart_message), 15, 4);
+
 static void uart_rx_reset_buffer_timer_fn(struct k_timer *timer_id) {
   ARG_UNUSED(timer_id);
   // Resetting the buffer is allowed here becasue only unprocessed command will
   // be in the buffer at this point.
-  ring_buf_reset(&rx_ring_buffer);
+  if (ring_buf_size_get(&rx_ring_buffer) > 0) {
+    LOG_INF("Resetting buffer size: %d", ring_buf_size_get(&rx_ring_buffer));
+    ring_buf_reset(&rx_ring_buffer);
+  }
 }
 K_TIMER_DEFINE(uart_rx_reset_buffer_timer, uart_rx_reset_buffer_timer_fn, NULL);
 
@@ -254,34 +258,23 @@ copy_data_to_ring_buf_return:
   return err;
 }
 
-extern struct k_mem_slab my_slab;
-
 CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
                                        __maybe_unused struct uart_event *evt,
                                        __maybe_unused void *user_data) {
   switch (evt->type) {
 
   case UART_TX_DONE:
-    // do something
     LOG_INF("UART event UART_TX_DONE type: %d\n", evt->type);
-// What you derived
-    struct uart_message *msg = (struct uart_message *)evt->data.tx.buf;
-    LOG_INF("Derived Struct Address: %p", (void *)msg);
-
-    // STOP HERE: Compare these printed addresses to the addresses 
-    // generated during k_mem_slab_alloc in your transmission function.
-    // If they do not match exactly, DO NOT call k_mem_slab_free yet.
-    k_mem_slab_free(&my_slab, msg);
+    struct uart_message *msg =
+        CONTAINER_OF((void *)(evt->data.tx.buf), struct uart_message, buffer);
+    k_mem_slab_free(&uart_message_slab, msg);
     break;
 
   case UART_TX_ABORTED:
-    // do something
     LOG_INF("UART event UART_TX_ABORTED type: %d\n", evt->type);
-
     break;
 
   case UART_RX_RDY:
-
     LOG_INF("UART event UART_RX_RDY type: %d\n", evt->type);
     int bytes_copied = copy_data_to_ring_buf(
         &rx_ring_buffer, &evt->data.rx.buf[evt->data.rx.offset],
@@ -301,9 +294,8 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
         // TODO (Matthew): Send error
       }
     }
-    clear_buf_till_r(&rx_ring_buffer);
 
-    k_timer_start(&uart_rx_reset_buffer_timer, K_MSEC(1000), K_FOREVER);
+    k_timer_start(&uart_rx_reset_buffer_timer, K_MSEC(1000), K_NO_WAIT);
     break;
 
   case UART_RX_BUF_REQUEST:
@@ -373,8 +365,35 @@ int send_can_message_to_uart(const struct can_frame *frame) {
   return send_command_status_via_uart(&message);
 }
 
-int send_uart_data_to_dev(const struct uart_message *message) {
-  int err = uart_tx(uart_dev, message->buffer, message->buffer_size,
-                    500 * message->buffer_size);
+// int send_uart_data_to_dev(const struct uart_message *message) {
+//   int err = uart_tx(uart_dev, message->buffer, message->buffer_size,
+//                     500 * message->buffer_size);
+//   return err;
+// }
+
+int send_command_status_via_uart(struct uart_message *message) {
+  struct uart_message *block_ptr;
+  int err;
+  err = k_mem_slab_alloc(&uart_message_slab, (void **)&block_ptr, K_NO_WAIT);
+
+  if (err != 0) {
+    LOG_ERR("Failed to get event from msgq");
+    goto send_command_status_via_uart_return;
+  }
+
+  block_ptr->buffer_size = message->buffer_size;
+  memcpy(block_ptr->buffer, message->buffer, message->buffer_size);
+
+  LOG_INF("Recieve uart message with len %d", block_ptr->buffer_size);
+
+  LOG_INF("%.*s", (int)block_ptr->buffer_size, block_ptr->buffer);
+  err = uart_tx(uart_dev, block_ptr->buffer, block_ptr->buffer_size,
+                500 * block_ptr->buffer_size);
+  if (err < 0) {
+    LOG_ERR("Failed to add message to UART msgq");
+    k_mem_slab_free(&uart_message_slab, (void *)block_ptr);
+    goto send_command_status_via_uart_return;
+  }
+send_command_status_via_uart_return:
   return err;
 }
