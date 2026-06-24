@@ -21,3 +21,4 @@ manifest:
             - cmsis_6
             - hal_st
             - hal_stm32
+            - hal_rpi_pico

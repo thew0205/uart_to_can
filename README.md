@@ -118,6 +118,7 @@ This firmware implements a subset of the **LAWICEL CAN232 / CANUSB** serial prot
 Responses: `\r` on success, `\a` (bell) on error.
 
 See the [LAWICEL CAN232 protocol specification](https://ostrovni-elektrarny.cz/static-content/documents/Lawicell_can232_v3.pdf?srsltid=AfmBOopETLooJFBtfLHFFEZLCtcwBkRXRtW8PBn7YZgROGUoGJqEalxK) for full details.
+See also [DFRobot USB TTL to CAN Bus Converter](https://wiki.dfrobot.com/tel0150/docs/22190)
 
 ---
 

@@ -181,7 +181,7 @@ struct uart_message can_frame_to_uart_message(const struct can_frame *frame) {
   }
   message.buffer[offset++] = COMMAND_RESPONSE_OKAY[0];
   message.buffer_size = offset;
-  assert(offset < MAX_UART_CAN_FRAME);
+  assert(offset <= MAX_UART_CAN_FRAME);
   return message;
 }
 
@@ -264,7 +264,7 @@ int add_can_filter(const struct device *can_dev, uint32_t filter_id,
   };
   /* 4. Bind the filter and callback wrapper directly to the active hardware
    * channel */
-  int err = can_add_rx_filter(can_dev, &can_rx_callback, NULL, &filter);
+  int err = can_add_rx_filter(can_dev, can_rx_callback, NULL, &filter);
 
   if (err < 0) {
     LOG_ERR("Failed to allocate or bind CAN hardware filter (err: %d)", err);

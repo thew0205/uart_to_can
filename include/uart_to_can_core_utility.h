@@ -17,8 +17,8 @@
 #define CAN_ID_11_BIT_BYTE_LENGHT 3
 #define CAN_ID_29_BIT_BYTE_LENGHT 8
 #define MESSAGE_BASE 16
-#define COMMAND_RESPONSE_OKAY "r"
-#define COMMAND_RESPONSE_ERROR "a"
+#define COMMAND_RESPONSE_OKAY "\r"
+#define COMMAND_RESPONSE_ERROR "\a"
 
 #define FULL_VERSION_RESPONSE                                                  \
   STRINGIFY(HARDWARE_VERSION_MAJOR)                                            \
@@ -30,8 +30,9 @@
   (1 + CAN_ID_29_BIT_BYTE_LENGHT + 1 + CAN_MAX_DLEN * 2 + 1)
 
 struct uart_message {
-  size_t buffer_size;
   uint8_t buffer[MAX_UART_CAN_FRAME];
+  size_t buffer_size;
+
 };
 
 static inline struct uart_message string_to_uart_message(const char *string) {
@@ -75,12 +76,13 @@ static inline bool ring_buf_get_char_to_uint(struct ring_buf *buf,
 
 static inline bool ring_buf_get_hex_to_uint8_t(struct ring_buf *buf,
                                                uint8_t *out_val) {
-  char data[2];
+  char data[2 + 1];
   char *temp_data;
   unsigned long temp_val;
   for (uint32_t i = 0; i < 2; i++) {
     data[i] = ring_buf_get_char(buf);
   }
+  data[2] = '\0';
   temp_val = strtoul(data, &temp_data, 16);
 
   if ((uintptr_t)temp_data != (uintptr_t)data) {

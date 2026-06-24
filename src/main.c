@@ -16,7 +16,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #define LED0_NODE DT_ALIAS(led0)
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 extern struct k_msgq uart_message_msgq;
-extern int main(void) {
+int main(void) {
 
   int err;
   err = init_uart_to_can();

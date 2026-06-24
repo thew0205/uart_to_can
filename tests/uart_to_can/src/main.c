@@ -5,6 +5,7 @@
  */
 
 #include "uart_to_can.h"
+#include "uart_to_can_core_utility.h"
 #include "zephyr/logging/log.h"
 #include "zephyr/sys/ring_buffer.h"
 #include "zephyr/toolchain.h"
@@ -32,8 +33,7 @@ FAKE_VALUE_FUNC(int, stop_can_device, const struct device *);
 FAKE_VALUE_FUNC(int, send_can_message_no_wait, const struct device *, uint32_t,
                 const uint8_t *, uint8_t, bool, bool);
 FAKE_VALUE_FUNC(int, set_bitrate, const struct device *, uint8_t);
-FAKE_VALUE_FUNC(int, send_command_status_via_uart, const struct device *,
-                const char *, size_t);
+FAKE_VALUE_FUNC(int, send_command_status_via_uart, struct uart_message *);
 FAKE_VALUE_FUNC(int, send_version, const struct device *);
 FAKE_VALUE_FUNC(int, add_can_filter, const struct device *, uint32_t, uint32_t,
                 bool);
@@ -55,6 +55,14 @@ int send_can_message_no_wait_custom_fake(const struct device *can_dev,
   return send_can_message_no_wait_fake.return_val;
 }
 
+static struct uart_message send_command_status_via_uart_uart_message;
+int send_command_status_via_uart_custom_fake(struct uart_message *message) {
+  send_command_status_via_uart_uart_message.buffer_size = message->buffer_size;
+  memcpy(send_command_status_via_uart_uart_message.buffer, message->buffer,
+         message->buffer_size);
+  return send_command_status_via_uart_fake.return_val;
+};
+
 static void setup_fn(__maybe_unused void *temp) {
   ring_buf_reset(&ring_buffer);
   ring_buf_reset(&ring_buffer_longer);
@@ -71,6 +79,8 @@ static void setup_fn(__maybe_unused void *temp) {
 
   send_can_message_no_wait_fake.custom_fake =
       send_can_message_no_wait_custom_fake;
+  send_command_status_via_uart_fake.custom_fake =
+      send_command_status_via_uart_custom_fake;
   /* Reset FFF internal call histories globally */
   FFF_RESET_HISTORY();
 }
@@ -94,14 +104,14 @@ ZTEST(process_data_uart_data, test_invalid_command) {
 
   zassert_equal(send_command_status_via_uart_fake.call_count, 1,
                 "send_command_status_via_uart should have been called once");
-  zassert_str_equal(send_command_status_via_uart_fake.arg1_val,
-                    COMMAND_RESPONSE_ERROR,
-                    "\a should have been passed to "
-                    "send_command_status_via_uart due to error");
-  zassert_equal(send_command_status_via_uart_fake.arg2_val,
+  zassert_equal(send_command_status_via_uart_uart_message.buffer_size,
                 strlen(COMMAND_RESPONSE_ERROR),
                 "string of len 1 should have been passed to "
                 "send_command_status_via_uart due to error");
+  zassert_mem_equal(send_command_status_via_uart_uart_message.buffer,
+                    COMMAND_RESPONSE_ERROR, strlen(COMMAND_RESPONSE_ERROR),
+                    "\a should have been passed to "
+                    "send_command_status_via_uart due to error");
   zassert_equal(clear_buf_till_r_fake.call_count, 1,
                 "clear_buf_till_r should have been called once");
 }
@@ -115,14 +125,14 @@ ZTEST(process_data_uart_data, test_start_can_command) {
                 "start_can_device should have been called once");
   zassert_equal(send_command_status_via_uart_fake.call_count, 1,
                 "send_command_status_via_uart should have been called once");
-  zassert_str_equal(send_command_status_via_uart_fake.arg1_val,
-                    COMMAND_RESPONSE_OKAY,
-                    "\a should have been passed to "
-                    "send_command_status_via_uart due to error");
-  zassert_equal(send_command_status_via_uart_fake.arg2_val,
+  zassert_equal(send_command_status_via_uart_uart_message.buffer_size,
                 strlen(COMMAND_RESPONSE_OKAY),
                 "string of len 1 should have been passed to "
                 "send_command_status_via_uart due to error");
+  zassert_mem_equal(send_command_status_via_uart_uart_message.buffer,
+                    COMMAND_RESPONSE_OKAY, strlen(COMMAND_RESPONSE_OKAY),
+                    "\a should have been passed to "
+                    "send_command_status_via_uart due to error");
 }
 
 ZTEST(process_data_uart_data, test_stop_can_command) {
@@ -134,14 +144,14 @@ ZTEST(process_data_uart_data, test_stop_can_command) {
                 "stop_can_device should have been called once");
   zassert_equal(send_command_status_via_uart_fake.call_count, 1,
                 "send_command_status_via_uart should have been called once");
-  zassert_str_equal(send_command_status_via_uart_fake.arg1_val,
-                    COMMAND_RESPONSE_OKAY,
-                    "\a should have been passed to "
-                    "send_command_status_via_uart due to error");
-  zassert_equal(send_command_status_via_uart_fake.arg2_val,
+  zassert_equal(send_command_status_via_uart_uart_message.buffer_size,
                 strlen(COMMAND_RESPONSE_OKAY),
                 "string of len 1 should have been passed to "
                 "send_command_status_via_uart due to error");
+  zassert_mem_equal(send_command_status_via_uart_uart_message.buffer,
+                    COMMAND_RESPONSE_OKAY, strlen(COMMAND_RESPONSE_OKAY),
+                    "\a should have been passed to "
+                    "send_command_status_via_uart due to error");
 }
 
 ZTEST(process_data_uart_data, test_set_bitrate_can_command) {
@@ -156,14 +166,14 @@ ZTEST(process_data_uart_data, test_set_bitrate_can_command) {
                 "set_bitrate");
   zassert_equal(send_command_status_via_uart_fake.call_count, 1,
                 "send_command_status_via_uart should have been called once");
-  zassert_str_equal(send_command_status_via_uart_fake.arg1_val,
-                    COMMAND_RESPONSE_OKAY,
-                    "\a should have been passed to "
-                    "send_command_status_via_uart");
-  zassert_equal(send_command_status_via_uart_fake.arg2_val,
+  zassert_equal(send_command_status_via_uart_uart_message.buffer_size,
                 strlen(COMMAND_RESPONSE_OKAY),
                 "string of len 1 should have been passed to "
-                "send_command_status_via_uart");
+                "send_command_status_via_uart due to error");
+  zassert_mem_equal(send_command_status_via_uart_uart_message.buffer,
+                    COMMAND_RESPONSE_OKAY, strlen(COMMAND_RESPONSE_OKAY),
+                    "\a should have been passed to "
+                    "send_command_status_via_uart due to error");
 }
 
 ZTEST(process_data_uart_data, test_set_bitrate_can_command_wrong_bitrate_code) {
@@ -179,14 +189,14 @@ ZTEST(process_data_uart_data, test_set_bitrate_can_command_wrong_bitrate_code) {
                 "set_bitrate");
   zassert_equal(send_command_status_via_uart_fake.call_count, 1,
                 "send_command_status_via_uart should have been called once");
-  zassert_str_equal(send_command_status_via_uart_fake.arg1_val,
-                    COMMAND_RESPONSE_ERROR,
-                    "\a should have been passed to "
-                    "send_command_status_via_uart due to error");
-  zassert_equal(send_command_status_via_uart_fake.arg2_val,
+  zassert_equal(send_command_status_via_uart_uart_message.buffer_size,
                 strlen(COMMAND_RESPONSE_ERROR),
                 "string of len 1 should have been passed to "
                 "send_command_status_via_uart due to error");
+  zassert_mem_equal(send_command_status_via_uart_uart_message.buffer,
+                    COMMAND_RESPONSE_ERROR, strlen(COMMAND_RESPONSE_ERROR),
+                    "\a should have been passed to "
+                    "send_command_status_via_uart due to error");
 }
 
 ZTEST_SUITE(parse_and_send_can_message_no_wait_11bit, NULL, NULL, setup_fn,
@@ -195,8 +205,8 @@ ZTEST_SUITE(parse_and_send_can_message_no_wait_11bit, NULL, NULL, setup_fn,
 ZTEST(parse_and_send_can_message_no_wait_11bit,
       test_correct_data_buffer_123178) {
   const char *message_data = "123178";
-  assert(ring_buf_put(&ring_buffer, message_data,
-                      strlen(message_data)) == (int)strlen(message_data));
+  assert(ring_buf_put(&ring_buffer, message_data, strlen(message_data)) ==
+         (int)strlen(message_data));
   parse_and_send_can_message_no_wait_11bit(&ring_buffer);
 
   zassert_equal(send_can_message_no_wait_fake.call_count, 1,
@@ -218,8 +228,8 @@ ZTEST(parse_and_send_can_message_no_wait_11bit,
 ZTEST(parse_and_send_can_message_no_wait_11bit,
       test_correct_data_buffer_no_dlc_1230) {
   const char *message_data = "1230";
-  assert(ring_buf_put(&ring_buffer, message_data,
-                      strlen(message_data)) == (int)strlen(message_data));
+  assert(ring_buf_put(&ring_buffer, message_data, strlen(message_data)) ==
+         (int)strlen(message_data));
   parse_and_send_can_message_no_wait_11bit(&ring_buffer);
 
   zassert_equal(send_can_message_no_wait_fake.call_count, 1,
@@ -296,8 +306,6 @@ ZTEST(parse_and_send_can_message_no_wait_11bit,
                 "send_can_message_no_wait should have not been called");
 }
 
-
-
 ZTEST_SUITE(parse_and_send_can_message_no_wait_29bit, NULL, NULL, setup_fn,
             NULL, NULL);
 
@@ -333,7 +341,6 @@ ZTEST(parse_and_send_can_message_no_wait_29bit,
 
   zassert_equal(send_can_message_no_wait_fake.call_count, 0,
                 "send_can_message_no_wait should have not been called");
-
 }
 
 ZTEST(parse_and_send_can_message_no_wait_29bit,
@@ -353,9 +360,7 @@ ZTEST(parse_and_send_can_message_no_wait_29bit,
                     "Buffers do not match!");
 
   zassert_equal(send_can_message_no_wait_fake.arg3_val, 0, "Should be 1");
-  zassert_equal(send_can_message_no_wait_fake.arg4_val, true,
-                "Should be true");
-  zassert_equal(send_can_message_no_wait_fake.arg5_val, false,
+  zassert_equal(send_can_message_no_wait_fake.arg4_val, true, "Should be true"); zassert_equal(send_can_message_no_wait_fake.arg5_val, false,
                 "Should be false");
 }
 

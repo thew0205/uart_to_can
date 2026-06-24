@@ -42,6 +42,13 @@ static uint8_t dma_buf_b[DMA_BUF_SIZE];
 RING_BUF_DECLARE(rx_ring_buffer, RX_BUF_SIZE);
 
 K_MSGQ_DEFINE(uart_message_msgq, sizeof(struct uart_message), 10, 1);
+static void uart_rx_reset_buffer_timer_fn(struct k_timer *timer_id) {
+  ARG_UNUSED(timer_id);
+  // Resetting the buffer is allowed here becasue only unprocessed command will
+  // be in the buffer at this point.
+  ring_buf_reset(&rx_ring_buffer);
+}
+K_TIMER_DEFINE(uart_rx_reset_buffer_timer, uart_rx_reset_buffer_timer_fn, NULL);
 
 CONFIG_UART_TO_CAN_STATIC int
 parse_and_send_can_message_no_wait(struct ring_buf *const buf,
@@ -136,6 +143,11 @@ enum UART_CAN_COMMANDS {
   HELP = 'h',
 };
 
+void print_buffer_without_clearing(struct ring_buf *buf) {
+  uint8_t buffer[500];
+  size_t bytes_read = ring_buf_peek(buf, buffer, 500);
+  LOG_HEXDUMP_INF(buffer, bytes_read, "Dumping :");
+}
 /**
  * @brief Processes data from the UART ring buffer
  *
@@ -145,6 +157,7 @@ CONFIG_UART_TO_CAN_STATIC void process_data_uart_data(struct ring_buf *buf) {
   int err = -1;
   const char *command_response;
   struct uart_message uart_message;
+  print_buffer_without_clearing(buf);
   if (search_r_consider_wrap(buf) != INT_MIN) {
     uint8_t command = ring_buf_get_char(buf);
     switch (command) {
@@ -213,7 +226,35 @@ CONFIG_UART_TO_CAN_STATIC void process_data_uart_data(struct ring_buf *buf) {
   }
 }
 
-CONFIG_UART_TO_CAN_STATIC void uart_cb(__maybe_unused const struct device *dev,
+int copy_data_to_ring_buf(struct ring_buf *ring_buf, const uint8_t *const data,
+                          size_t data_len) {
+  uint8_t *temp_data;
+  int err;
+  uint32_t bytes_written2 = 0;
+
+  uint32_t bytes_written = ring_buf_put_claim(ring_buf, &temp_data, data_len);
+  memcpy(temp_data, data, bytes_written);
+  if (ring_buf_put_finish(ring_buf, bytes_written) != 0) {
+    err = -1;
+    goto copy_data_to_ring_buf_return;
+  }
+
+  if (bytes_written < data_len && ring_buf_size_get(ring_buf) > 0) {
+    bytes_written2 =
+        ring_buf_put_claim(ring_buf, &temp_data, data_len - bytes_written);
+    memcpy(temp_data, &data[bytes_written], bytes_written2);
+    if (ring_buf_put_finish(ring_buf, bytes_written) != 0) {
+      err = -1;
+      goto copy_data_to_ring_buf_return;
+    }
+  }
+  err = bytes_written + bytes_written2;
+
+copy_data_to_ring_buf_return:
+  return err;
+}
+
+CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
                                        __maybe_unused struct uart_event *evt,
                                        __maybe_unused void *user_data) {
   switch (evt->type) {
@@ -233,19 +274,27 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(__maybe_unused const struct device *dev,
   case UART_RX_RDY:
 
     LOG_INF("UART event UART_RX_RDY type: %d\n", evt->type);
-    uint32_t bytes_written =
-        ring_buf_put(&rx_ring_buffer, &evt->data.rx.buf[evt->data.rx.offset],
-                     evt->data.rx.len);
-    // Perform complete commands possible
-    process_data_uart_data(&rx_ring_buffer);
-    // clear command that might have possible values dropped.
-    if (bytes_written < evt->data.rx.len) {
-      LOG_ERR("Ring buffer full! Dropped %d bytes.",
-              (evt->data.rx.len - bytes_written));
-      clear_buf_till_r(&rx_ring_buffer);
-      LOG_INF("Clearing ring buffer");
-      // TODO (Matthew): Send error
+    int bytes_copied = copy_data_to_ring_buf(
+        &rx_ring_buffer, &evt->data.rx.buf[evt->data.rx.offset],
+        evt->data.rx.len);
+    if (bytes_copied < 0) {
+      LOG_ERR("Error with copying data to ring buf");
+
+    } else {
+      // Perform complete commands possible
+      process_data_uart_data(&rx_ring_buffer);
+      // clear command that might have possible values dropped.
+      if ((size_t)bytes_copied < evt->data.rx.len) {
+        LOG_ERR("Ring buffer full! Dropped %d bytes.",
+                (evt->data.rx.len - bytes_copied));
+        clear_buf_till_r(&rx_ring_buffer);
+        LOG_INF("Clearing ring buffer");
+        // TODO (Matthew): Send error
+      }
     }
+    clear_buf_till_r(&rx_ring_buffer);
+
+    k_timer_start(&uart_rx_reset_buffer_timer, K_MSEC(1000), K_FOREVER);
     break;
 
   case UART_RX_BUF_REQUEST:
