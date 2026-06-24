@@ -168,7 +168,6 @@ int send_command_status_via_uart(struct uart_message *message);
 */
 void clear_buf_till_r(struct ring_buf *buf);
 
-int send_version();
 
 /**
  * @brief Converts a CAN frame to a uart message

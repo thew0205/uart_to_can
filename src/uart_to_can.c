@@ -39,6 +39,16 @@ static const struct device *uart_dev = DEVICE_DT_GET(UART_NODE);
 static uint8_t dma_buf_a[DMA_BUF_SIZE];
 static uint8_t dma_buf_b[DMA_BUF_SIZE];
 
+enum UART_CAN_COMMANDS {
+  START_CAN = 'O',
+  STOP_CAN = 'C',
+  SET_BITRATE = 'S',
+  SEND_11_BIT_CAN = 't',
+  SEND_29_BIT_CAN = 'T',
+  VERSION = 'V',
+  HELP = 'h',
+};
+
 RING_BUF_DECLARE(rx_ring_buffer, RX_BUF_SIZE);
 
 K_MEM_SLAB_DEFINE(uart_message_slab, sizeof(struct uart_message), 15, 4);
@@ -137,27 +147,45 @@ parse_and_send_can_message_no_wait_11bit_return:
   return err;
 }
 
-enum UART_CAN_COMMANDS {
-  START_CAN = 'O',
-  STOP_CAN = 'C',
-  SET_BITRATE = 'S',
-  SEND_11_BIT_CAN = 't',
-  SEND_29_BIT_CAN = 'T',
-  VERSION = 'V',
-  HELP = 'h',
-};
+CONFIG_UART_TO_CAN_STATIC int
+send_can_message_to_uart(const struct can_frame *frame) {
+  struct uart_message message = can_frame_to_uart_message(frame);
 
-void print_buffer_without_clearing(struct ring_buf *buf) {
-  uint8_t buffer[500];
-  size_t bytes_read = ring_buf_peek(buf, buffer, 500);
-  LOG_HEXDUMP_INF(buffer, bytes_read, "Dumping :");
+  return send_command_status_via_uart(&message);
+}
+
+void can_rx_callback(const struct device *dev, struct can_frame *frame,
+                     void *user_data) {
+  (void)user_data;
+  LOG_INF("Received CAN Frame from device %s! ID: 0x%03x, DLC: %d", dev->name,
+          frame->id, frame->dlc);
+  /* Safely print the incoming data payload using the hex helper */
+  LOG_HEXDUMP_DBG(frame->data, frame->dlc, "Payload:");
+  // k_msgq_put(&can_data_msgq, frame, K_NO_WAIT);
+  send_can_message_to_uart(frame);
+}
+
+CONFIG_UART_TO_CAN_STATIC int send_version() {
+  struct uart_message message;
+  snprintf(message.buffer, MAX_UART_CAN_FRAME + 1, "%s", FULL_VERSION_RESPONSE);
+  message.buffer_size = strlen(FULL_VERSION_RESPONSE) + 1;
+  return send_command_status_via_uart(&message);
+}
+
+CONFIG_UART_TO_CAN_STATIC void
+print_buffer_without_clearing(struct ring_buf *buf) {
+  if (IS_ENABLED(CONFIG_LOGGING)) {
+    uint8_t buffer[500];
+    size_t bytes_read = ring_buf_peek(buf, buffer, 500);
+    LOG_HEXDUMP_INF(buffer, bytes_read, "Dumping :");
+  }
 }
 /**
  * @brief Processes data from the UART ring buffer
  *
  * @param buf Pointer to the ring buffer
  */
-CONFIG_UART_TO_CAN_STATIC void process_data_uart_data(struct ring_buf *buf) {
+CONFIG_UART_TO_CAN_STATIC void process_and_clear_command_data_uart_data(struct ring_buf *buf) {
   int err = -1;
   const char *command_response;
   struct uart_message uart_message;
@@ -232,6 +260,7 @@ CONFIG_UART_TO_CAN_STATIC void process_data_uart_data(struct ring_buf *buf) {
 
 int copy_data_to_ring_buf(struct ring_buf *ring_buf, const uint8_t *const data,
                           size_t data_len) {
+  // TODO (Matthew): Change to a while loop implementation
   uint8_t *temp_data;
   int err;
   uint32_t bytes_written2 = 0;
@@ -284,7 +313,7 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
 
     } else {
       // Perform complete commands possible
-      process_data_uart_data(&rx_ring_buffer);
+      process_and_clear_command_data_uart_data(&rx_ring_buffer);
       // clear command that might have possible values dropped.
       if ((size_t)bytes_copied < evt->data.rx.len) {
         LOG_ERR("Ring buffer full! Dropped %d bytes.",
@@ -310,18 +339,14 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
     break;
 
   case UART_RX_BUF_RELEASED:
-    // do something
     LOG_INF("UART event UART_RX_BUF_RELEASED type: %d\n", evt->type);
-
     break;
 
   case UART_RX_DISABLED:
-    // do something
     LOG_INF("UART event UART_RX_DISABLED type: %d\n", evt->type);
     break;
 
   case UART_RX_STOPPED:
-    // do something
     LOG_INF("UART event UART_RX_STOPPED type: %d\n", evt->type);
     break;
 
@@ -358,18 +383,6 @@ int init_uart_to_can(void) {
 
   return err;
 }
-
-int send_can_message_to_uart(const struct can_frame *frame) {
-  struct uart_message message = can_frame_to_uart_message(frame);
-
-  return send_command_status_via_uart(&message);
-}
-
-// int send_uart_data_to_dev(const struct uart_message *message) {
-//   int err = uart_tx(uart_dev, message->buffer, message->buffer_size,
-//                     500 * message->buffer_size);
-//   return err;
-// }
 
 int send_command_status_via_uart(struct uart_message *message) {
   struct uart_message *block_ptr;

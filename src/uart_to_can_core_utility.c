@@ -24,8 +24,9 @@
 
 LOG_MODULE_REGISTER(uart_to_can_core_utility, LOG_LEVEL_INF);
 
-extern struct k_msgq uart_message_msgq;
-int send_can_message_to_uart(const struct can_frame *frame);
+void can_rx_callback(const struct device *dev, struct can_frame *frame,
+                     void *user_data);
+
 
 bool ring_buf_has_wrapped(struct ring_buf *buf) {
   uint32_t free_space = ring_buf_size_get(buf);
@@ -143,13 +144,6 @@ int set_bitrate(const struct device *can_dev, uint8_t bitrate_code) {
     LOG_ERR("Failed to calc timing for speed %d", bitrate_k * 1000);
     goto set_bitrate_return;
   }
-
-  // err = can_stop(can_dev);
-  // if (err != 0) {
-  //   LOG_ERR("Failed to stop CAN controller");
-  //   goto set_bitrate_return;
-  // }
-
   err = can_set_timing(can_dev, &timing);
   if (err != 0) {
     LOG_ERR("Failed to set timing");
@@ -183,17 +177,6 @@ struct uart_message can_frame_to_uart_message(const struct can_frame *frame) {
   message.buffer_size = offset;
   assert(offset <= MAX_UART_CAN_FRAME);
   return message;
-}
-
-void can_rx_callback(const struct device *dev, struct can_frame *frame,
-                     void *user_data) {
-  (void)user_data;
-  LOG_INF("Received CAN Frame from device %s! ID: 0x%03x, DLC: %d", dev->name,
-          frame->id, frame->dlc);
-  /* Safely print the incoming data payload using the hex helper */
-  LOG_HEXDUMP_DBG(frame->data, frame->dlc, "Payload:");
-  // k_msgq_put(&can_data_msgq, frame, K_NO_WAIT);
-  send_can_message_to_uart(frame);
 }
 
 static void can_tx_callback(__maybe_unused const struct device *dev, int err,
@@ -271,15 +254,6 @@ int add_can_filter(const struct device *can_dev, uint32_t filter_id,
   }
 
   return err;
-}
-
-
-
-int send_version() {
-  struct uart_message message;
-  snprintf(message.buffer, MAX_UART_CAN_FRAME + 1, "%s", FULL_VERSION_RESPONSE);
-  message.buffer_size = strlen(FULL_VERSION_RESPONSE) + 1;
-  return send_command_status_via_uart(&message);
 }
 
 void clear_buf_till_r(struct ring_buf *buf) {
