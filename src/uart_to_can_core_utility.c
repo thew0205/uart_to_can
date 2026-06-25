@@ -27,7 +27,6 @@ LOG_MODULE_REGISTER(uart_to_can_core_utility, LOG_LEVEL_INF);
 void can_rx_callback(const struct device *dev, struct can_frame *frame,
                      void *user_data);
 
-
 bool ring_buf_has_wrapped(struct ring_buf *buf) {
   uint32_t free_space = ring_buf_size_get(buf);
   uint8_t *data;
@@ -75,14 +74,6 @@ int start_can_device(const struct device *can_dev) {
     LOG_ERR("Error starting CAN controller (err %d)", err);
   }
 
-  err = add_can_filter(can_dev, 0x0000000, 0x0000000, false);
-  if (err < 0) {
-    LOG_ERR("Error adding filter CAN controller (err %d)", err);
-  }
-  err = add_can_filter(can_dev, 0x0000000, 0x0000000, true);
-  if (err < 0) {
-    LOG_ERR("Error adding filter CAN controller (err %d)", err);
-  }
   return err;
 }
 
@@ -245,14 +236,15 @@ int add_can_filter(const struct device *can_dev, uint32_t filter_id,
       .flags = is_extended_id ? CAN_FILTER_IDE : 0,
 
   };
-  /* 4. Bind the filter and callback wrapper directly to the active hardware
-   * channel */
+ 
   int err = can_add_rx_filter(can_dev, can_rx_callback, NULL, &filter);
 
   if (err < 0) {
     LOG_ERR("Failed to allocate or bind CAN hardware filter (err: %d)", err);
+    goto add_can_filter_return;
   }
-
+  err = 0;
+add_can_filter_return:
   return err;
 }
 

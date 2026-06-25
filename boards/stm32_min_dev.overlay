@@ -1,88 +1,51 @@
-/* SPDX-License-Identifier: Apache-2.0 */
-
 / {
 	aliases {
 		uart-can-can = &can_device;
 		uart-can-uart = &usart_rs485;
 	};
 
-	chosen{
+	chosen {
 		zephyr,console = &usart_console;
-
 	};
-
 
 	leds {
 		compatible = "gpio-leds";
 		status = "okay";
+
 		indicator_led: led {
 			label = "Indicator LED";
 			gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
 		};
 	};
-
-};
-
-&usart3{
-	status = "disabled";
-};
-&i2c1{
-	status = "disabled";
-};
-&i2c2{
-	status = "disabled";
-};
-&spi1{
-	status = "disabled";
-};
-&adc1{
-	status = "disabled";
-};
-&spi2{
-	status = "disabled";
-};
-
-&timers2{
-	status = "disabled";
-};
-
-&usb {
-	status = "disabled";
-};
-
-&pwm1{
-	status = "disabled";
-
 };
 
 can_device: &can1 {
 	status = "okay";
 	bitrate = <250000>;
-	pinctrl-0 = <&can_device_rx_pb8  &can_device_tx_pb9>;
+	pinctrl-0 = <&can_device_rx_pb8 &can_device_tx_pb9>;
 	pinctrl-names = "default";
 };
 
 usart_console: &usart2 {
 	status = "okay";
-	pinctrl-0 = <&usart_console_tx_pa2  &usart_console_rx_pa3>;
+	pinctrl-0 = <&usart_console_tx_pa2 &usart_console_rx_pa3>;
 	pinctrl-names = "default";
 };
 
-
 usart_rs485: &usart1 {
 	status = "okay";
-	pinctrl-0 = <&usart_rs485_tx_pa9  &usart_rs485_rx_pa10>;
+	pinctrl-0 = <&usart_rs485_tx_pa9 &usart_rs485_rx_pa10>;
 	pinctrl-names = "default";
 	current-speed = <115200>;
- /* Format: <&dma_controller_phandle channel channel_config> */
-    dmas = <&dma1 4 STM32_DMA_PERIPH_TX>,  /* USART1_TX is fixed to Channel 4 */
-           <&dma1 5 STM32_DMA_PERIPH_RX>;  /* USART1_RX is fixed to Channel 5 */
-    dma-names = "tx", "rx";
+	/* Format: <&dma_controller_phandle channel channel_config> */
+	dmas = <&dma1 4 STM32_DMA_PERIPH_TX>,  /* USART1_TX is fixed to Channel 4 */
+	       <&dma1 5 STM32_DMA_PERIPH_RX>;  /* USART1_RX is fixed to Channel 5 */
+	dma-names = "tx", "rx";
 };
 
 /* 1. Ensure the global DMA engine is turned on */
 &dma1 {
-    status = "okay";
+	status = "okay";
 };
 
 &pinctrl {
@@ -91,6 +54,7 @@ usart_rs485: &usart1 {
 	can_device_rx_pb8: can_rx_remap1_pb8 {
 		pinmux = <STM32F1_PINMUX('B', 8, GPIO_IN, CAN_REMAP1)>;
 	};
+
 	can_device_tx_pb9: can_tx_remap1_pb9 {
 		pinmux = <STM32F1_PINMUX('B', 9, ALTERNATE, CAN_REMAP1)>;
 	};
@@ -110,4 +74,41 @@ usart_rs485: &usart1 {
 	usart_rs485_tx_pa9: usart1_tx_pa9 {
 		pinmux = <STM32F1_PINMUX('A', 9, ALTERNATE, USART1_REMAP0)>;
 	};
+};
+
+
+&usart3 {
+	status = "disabled";
+};
+
+&i2c1 {
+	status = "disabled";
+};
+
+&i2c2 {
+	status = "disabled";
+};
+
+&spi1 {
+	status = "disabled";
+};
+
+&adc1 {
+	status = "disabled";
+};
+
+&spi2 {
+	status = "disabled";
+};
+
+&timers2 {
+	status = "disabled";
+};
+
+&usb {
+	status = "disabled";
+};
+
+&pwm1 {
+	status = "disabled";
 };

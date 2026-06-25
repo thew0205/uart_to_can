@@ -16,6 +16,7 @@
 
 #define CAN_ID_11_BIT_BYTE_LENGHT 3
 #define CAN_ID_29_BIT_BYTE_LENGHT 8
+#define CAN_FILTER_BYTE_LENGHT (8 + 8)
 #define MESSAGE_BASE 16
 #define COMMAND_RESPONSE_OKAY "\r"
 #define COMMAND_RESPONSE_ERROR "\a"
@@ -83,6 +84,24 @@ static inline bool ring_buf_get_hex_to_uint8_t(struct ring_buf *buf,
     data[i] = ring_buf_get_char(buf);
   }
   data[2] = '\0';
+  temp_val = strtoul(data, &temp_data, 16);
+
+  if ((uintptr_t)temp_data != (uintptr_t)data) {
+    *out_val = temp_val;
+    return true;
+  }
+  return false;
+}
+
+static inline bool ring_buf_get_hex_to_uint32_t(struct ring_buf *buf,
+                                               uint32_t *out_val) {
+  char data[8 + 1];
+  char *temp_data;
+  unsigned long temp_val;
+  for (uint32_t i = 0; i < 8; i++) {
+    data[i] = ring_buf_get_char(buf);
+  }
+  data[8] = '\0';
   temp_val = strtoul(data, &temp_data, 16);
 
   if ((uintptr_t)temp_data != (uintptr_t)data) {

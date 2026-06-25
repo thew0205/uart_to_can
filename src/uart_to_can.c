@@ -33,6 +33,20 @@ static const struct device *can_dev = DEVICE_DT_GET(CAN_NODE);
 #define UART_NODE DT_ALIAS(uart_can_uart)
 static const struct device *uart_dev = DEVICE_DT_GET(UART_NODE);
 
+#if defined(CONFIG_CAN_STM32_BXCAN_MAX_STD_ID_FILTERS)
+#define CONFIG_CAN_MAX_STD_ID_FILTERS CONFIG_CAN_STM32_BXCAN_MAX_STD_ID_FILTERS
+#else
+#define CONFIG_CAN_MAX_STD_ID_FILTERS 5
+#endif
+
+#if defined(CONFIG_CAN_STM32_BXCAN_MAX_EXT_ID_FILTERS)
+#define CONFIG_CAN_MAX_EXT_ID_FILTERS CONFIG_CAN_STM32_BXCAN_MAX_EXT_ID_FILTERS
+#else
+#define CONFIG_CAN_MAX_EXT_ID_FILTERS 5
+#endif
+// int filter_ids_std[CONFIG_CAN_MAX_STD_ID_FILTERS];
+// int filter_ids_ext[CONFIG_CAN_MAX_EXT_ID_FILTERS];
+
 #define DMA_BUF_SIZE 32
 #define RX_BUF_SIZE 1024
 /* 2. Declare Memory Buffers */
@@ -96,6 +110,7 @@ parse_and_send_can_message_no_wait_11bit(struct ring_buf *const buf) {
   int err = 0;
   unsigned long temp_long;
   uint16_t can_id = 0;
+  // First 1 for dlc
   if (ring_buf_size_get(buf) < (CAN_ID_11_BIT_BYTE_LENGHT + 1)) {
     err = -1;
     LOG_ERR("Not enough data in buffer");
@@ -119,6 +134,7 @@ parse_and_send_can_message_no_wait_29bit(struct ring_buf *const buf) {
   int err = 0;
   unsigned long temp_long;
   uint32_t can_id = 0;
+  // First 1 for dlc
   if (ring_buf_size_get(buf) < (CAN_ID_29_BIT_BYTE_LENGHT + 1)) {
     err = -1;
     LOG_ERR("Not enough data in buffer");
@@ -135,6 +151,43 @@ parse_and_send_can_message_no_wait_29bit(struct ring_buf *const buf) {
   err = parse_and_send_can_message_no_wait(buf, can_id, true);
 parse_and_send_can_message_no_wait_11bit_return:
   return err;
+}
+
+CONFIG_UART_TO_CAN_STATIC int
+parse_and_add_can_filter(struct ring_buf *const buf, bool is_extended_id) {
+  int err = 0;
+  uint32_t filter_id;
+  uint32_t filter_mask;
+  int a = ring_buf_size_get(buf);
+  ARG_UNUSED(a);
+  if (ring_buf_size_get(buf) < (CAN_FILTER_BYTE_LENGHT)) {
+    err = -1;
+    LOG_ERR("Not enough data in buffer");
+    goto parse_and_send_can_message_no_wait_11bit_return;
+  }
+  if (!ring_buf_get_hex_to_uint32_t(buf, &filter_id)) {
+    err = -1;
+    LOG_ERR("Invalid CAN Filter ID");
+    goto parse_and_send_can_message_no_wait_11bit_return;
+  }
+  if (!ring_buf_get_hex_to_uint32_t(buf, &filter_mask)) {
+    err = -1;
+    LOG_ERR("Invalid CAN Filter mask");
+    goto parse_and_send_can_message_no_wait_11bit_return;
+  }
+  err = add_can_filter(can_dev, filter_id, filter_mask, is_extended_id);
+parse_and_send_can_message_no_wait_11bit_return:
+  return err;
+}
+
+CONFIG_UART_TO_CAN_STATIC int
+parse_and_add_can_filter_11bit(struct ring_buf *const buf) {
+  return parse_and_add_can_filter(buf, false);
+}
+
+CONFIG_UART_TO_CAN_STATIC int
+parse_and_add_can_filter_29bit(struct ring_buf *const buf) {
+  return parse_and_add_can_filter(buf, true);
 }
 
 CONFIG_UART_TO_CAN_STATIC int
@@ -157,7 +210,8 @@ void can_rx_callback(const struct device *dev, struct can_frame *frame,
 
 CONFIG_UART_TO_CAN_STATIC int send_version() {
   struct uart_message message;
-  snprintf(message.buffer, MAX_UART_CAN_FRAME + 1, "%s", FULL_VERSION_RESPONSE);
+
+  snprintf(message.buffer, MAX_UART_CAN_FRAME, "%s", FULL_VERSION_RESPONSE);
   message.buffer_size = strlen(FULL_VERSION_RESPONSE) + 1;
   return send_command_status_via_uart(&message);
 }
@@ -205,13 +259,16 @@ CONFIG_UART_TO_CAN_STATIC int reset_command() {
   int err = 0;
   enum can_state state;
   struct can_bus_err_cnt err_cnt;
-
+  err = uart_tx_abort(uart_dev);
+  if (err != 0) {
+    LOG_ERR("Error abort UART TX: %d", err);
+  }
   err = can_get_state(can_dev, &state, &err_cnt);
   if (err != 0) {
     LOG_ERR("Error getting CAN state: %d", err);
     goto reset_command_return;
   }
-  if (state == CAN_STATE_ERROR_ACTIVE) {
+  if (state != CAN_STATE_STOPPED) {
     err = can_stop(can_dev);
     if (err != 0) {
       LOG_ERR("Error stopping CAN: %d", err);
@@ -231,6 +288,14 @@ print_buffer_without_clearing(struct ring_buf *buf) {
     LOG_HEXDUMP_INF(buffer, bytes_read, "Dumping :");
   }
 }
+
+CONFIG_UART_TO_CAN_STATIC void send_command_response(int err) {
+  struct uart_message uart_message;
+  const char *command_response =
+      err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
+  uart_message = string_to_uart_message(command_response);
+  err = send_command_status_via_uart(&uart_message);
+}
 /**
  * @brief Processes data from the UART ring buffer
  *
@@ -239,55 +304,38 @@ print_buffer_without_clearing(struct ring_buf *buf) {
 CONFIG_UART_TO_CAN_STATIC void
 process_and_clear_command_data_uart_data(struct ring_buf *buf) {
   int err = -1;
-  const char *command_response;
-  struct uart_message uart_message;
   print_buffer_without_clearing(buf);
   if (search_r_consider_wrap(buf) != INT_MIN) {
-    uint8_t command = ring_buf_get_char(buf);
+    enum UART_CAN_COMMANDS command = ring_buf_get_char(buf);
     switch (command) {
 
     case UART_CAN_COMMANDS_START_CAN:
       LOG_INF("Starting CAN");
       err = start_can_device(can_dev);
-      command_response =
-          err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
-      uart_message = string_to_uart_message(command_response);
-      err = send_command_status_via_uart(&uart_message);
+      send_command_response(err);
       break;
     case UART_CAN_COMMANDS_STOP_CAN:
       LOG_INF("Stopping CAN");
       err = stop_can_device(can_dev);
-      command_response =
-          err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
-      uart_message = string_to_uart_message(command_response);
-      err = send_command_status_via_uart(&uart_message);
+      send_command_response(err);
       break;
     case UART_CAN_COMMANDS_SET_BITRATE:
       LOG_INF("Setting CAN Bitrate");
       err = set_bitrate(can_dev, ring_buf_get_char(buf));
-      command_response =
-          err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
-      uart_message = string_to_uart_message(command_response);
-      err = send_command_status_via_uart(&uart_message);
+      send_command_response(err);
       break;
-    case 's':
-      // TODO (Matthew)
-      break;
+    // case 's':
+    //   // TODO (Matthew)
+    //   break;
     case UART_CAN_COMMANDS_SEND_11_BIT_CAN:
       LOG_INF("Send data to standard 11 bit CAN");
       err = parse_and_send_can_message_no_wait_11bit(buf);
-      command_response =
-          err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
-      uart_message = string_to_uart_message(command_response);
-      err = send_command_status_via_uart(&uart_message);
+      send_command_response(err);
       break;
     case UART_CAN_COMMANDS_SEND_29_BIT_CAN:
       LOG_INF("Send data to standard 29 bit CAN");
       err = parse_and_send_can_message_no_wait_29bit(buf);
-      command_response =
-          err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
-      uart_message = string_to_uart_message(command_response);
-      err = send_command_status_via_uart(&uart_message);
+      send_command_response(err);
       break;
     case UART_CAN_COMMANDS_VERSION:
       LOG_INF("Version");
@@ -300,18 +348,26 @@ process_and_clear_command_data_uart_data(struct ring_buf *buf) {
     case UART_CAN_COMMANDS_RESET:
       LOG_INF("Reset");
       err = reset_command();
-      command_response =
-          err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
-      uart_message = string_to_uart_message(command_response);
-      err = send_command_status_via_uart(&uart_message);
+      send_command_response(err);
+      break;
+
+    case UART_CAN_COMMANDS_GET_STATE:
+      LOG_INF("Getting State");
+      break;
+    case UART_CAN_COMMANDS_ADD_FILTER_11_BIT:
+      LOG_INF("Adding standard filter");
+      err = parse_and_add_can_filter_11bit(buf);
+      send_command_response(err);
+      break;
+    case UART_CAN_COMMANDS_ADD_FILTER_29_BIT:
+      LOG_INF("Adding extended filter");
+      err = parse_and_add_can_filter_29bit(buf);
+      send_command_response(err);
       break;
     default:
       LOG_ERR("Unrecongnised command");
       err = -ENOENT;
-      command_response =
-          err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
-      uart_message = string_to_uart_message(command_response);
-      err = send_command_status_via_uart(&uart_message);
+     send_command_response(err);
       break;
     }
     clear_buf_till_r(buf);
@@ -351,16 +407,14 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
                                        __maybe_unused struct uart_event *evt,
                                        __maybe_unused void *user_data) {
   switch (evt->type) {
-
+  case UART_TX_ABORTED:
+    LOG_INF("UART event UART_TX_ABORTED type: %d\n", evt->type);
+    [[fallthrough]];
   case UART_TX_DONE:
     LOG_INF("UART event UART_TX_DONE type: %d\n", evt->type);
     struct uart_message *msg =
         CONTAINER_OF((void *)(evt->data.tx.buf), struct uart_message, buffer);
     k_mem_slab_free(&uart_message_slab, msg);
-    break;
-
-  case UART_TX_ABORTED:
-    LOG_INF("UART event UART_TX_ABORTED type: %d\n", evt->type);
     break;
 
   case UART_RX_RDY:
@@ -441,6 +495,13 @@ int init_uart_to_can(void) {
     return err;
   }
 
+  // for (int i = 0; i < CONFIG_CAN_MAX_STD_ID_FILTERS; i++) {
+  //   filter_ids_std[i] = INT_MIN;
+  // }
+  // for (int i = 0; i < CONFIG_CAN_MAX_EXT_ID_FILTERS; i++) {
+  //   filter_ids_ext[i] = INT_MIN;
+  // }
+
   return err;
 }
 
@@ -457,9 +518,9 @@ int send_command_status_via_uart(struct uart_message *message) {
   block_ptr->buffer_size = message->buffer_size;
   memcpy(block_ptr->buffer, message->buffer, message->buffer_size);
 
-  LOG_INF("Recieve uart message with len %d", block_ptr->buffer_size);
+  LOG_INF("Sending uart message with len %d", block_ptr->buffer_size);
 
-  LOG_INF("%.*s", (int)block_ptr->buffer_size, block_ptr->buffer);
+  LOG_HEXDUMP_INF(block_ptr->buffer, block_ptr->buffer_size, "Data");
   err = uart_tx(uart_dev, block_ptr->buffer, block_ptr->buffer_size,
                 500 * block_ptr->buffer_size);
   if (err < 0) {

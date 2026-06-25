@@ -22,58 +22,19 @@
 		};
 	};
 
-	relays {
-		compatible = "gpio-leds";
+	usart_rs485: uart_fake {
+		compatible = "zephyr,fake-serial";
 		status = "okay";
-		ac_power_relay: ac_power_relay {
-			gpios = <&gpio0 12 GPIO_ACTIVE_HIGH>;
-			label = "AC Power Relay";
-		};
 	};
 };
 
 can_device: &can_loopback0 {
 	status = "okay";
 	bitrate = <250000>;
-	// bus-speed = <250000>;
-	// pinctrl-0 = <&can_device_rx_pb8  &can_device_tx_pb9>;
-	// pinctrl-names = "default";
 };
 
 usart_console: &uart0 {
 	status = "okay";
-	
 };
 
 
-usart_rs485: &uart1 {
-	status = "okay";
-	current-speed = <115200>;
-};
-
-// &pinctrl {
-// 	// swj-cfg = "full";
-
-// 	can_device_rx_pb8: can_rx_remap1_pb8 {
-// 		pinmux = <STM32F1_PINMUX('B', 8, GPIO_IN, CAN_REMAP1)>;
-// 	};
-// 	can_device_tx_pb9: can_tx_remap1_pb9 {
-// 		pinmux = <STM32F1_PINMUX('B', 9, ALTERNATE, CAN_REMAP1)>;
-// 	};
-
-// 	usart_console_tx_pa2: usart2_tx_pa2 {
-// 		pinmux = <STM32F1_PINMUX('A', 2, ALTERNATE, USART2_REMAP0)>;
-// 	};
-
-// 	usart_console_rx_pa3: usart2_rx_pa3 {
-// 		pinmux = <STM32F1_PINMUX('A', 3, GPIO_IN, USART2_REMAP0)>;
-// 	};
-
-// 	usart_rs485_rx_pa10: usart1_rx_pa10 {
-// 		pinmux = <STM32F1_PINMUX('A', 10, GPIO_IN, USART1_REMAP0)>;
-// 	};
-
-// 	usart_rs485_tx_pa9: usart1_tx_pa9 {
-// 		pinmux = <STM32F1_PINMUX('A', 9, ALTERNATE, USART1_REMAP0)>;
-// 	};
-// };

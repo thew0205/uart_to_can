@@ -6,7 +6,6 @@ project(uart_to_can_core_utility)
 
 set(app_sources
   src/main.c
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/uart_to_can.c
   ${CMAKE_CURRENT_SOURCE_DIR}/../../src/uart_to_can_core_utility.c
 )
 
