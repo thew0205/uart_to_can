@@ -7,6 +7,18 @@
 #include <zephyr/drivers/uart.h>
 
 #include "uart_to_can_core_utility.h"
+/* Enum definition from supported commands. */
+enum UART_CAN_COMMANDS {
+  UART_CAN_COMMANDS_START_CAN = 'O',
+  UART_CAN_COMMANDS_STOP_CAN = 'C',
+  UART_CAN_COMMANDS_SET_BITRATE = 'S',
+  UART_CAN_COMMANDS_SEND_11_BIT_CAN = 't',
+  UART_CAN_COMMANDS_SEND_29_BIT_CAN = 'T',
+  UART_CAN_COMMANDS_VERSION = 'V',
+  UART_CAN_COMMANDS_HELP = 'h',
+  UART_CAN_COMMANDS_RESET = 'L',
+  UART_CAN_COMMANDS_GET_STATE = 'G',
+};
 
 /**
  * @brief Initialize the UART to CAN module.

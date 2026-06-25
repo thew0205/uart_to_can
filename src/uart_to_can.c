@@ -39,16 +39,6 @@ static const struct device *uart_dev = DEVICE_DT_GET(UART_NODE);
 static uint8_t dma_buf_a[DMA_BUF_SIZE];
 static uint8_t dma_buf_b[DMA_BUF_SIZE];
 
-enum UART_CAN_COMMANDS {
-  START_CAN = 'O',
-  STOP_CAN = 'C',
-  SET_BITRATE = 'S',
-  SEND_11_BIT_CAN = 't',
-  SEND_29_BIT_CAN = 'T',
-  VERSION = 'V',
-  HELP = 'h',
-};
-
 RING_BUF_DECLARE(rx_ring_buffer, RX_BUF_SIZE);
 
 K_MEM_SLAB_DEFINE(uart_message_slab, sizeof(struct uart_message), 15, 4);
@@ -172,9 +162,70 @@ CONFIG_UART_TO_CAN_STATIC int send_version() {
   return send_command_status_via_uart(&message);
 }
 
+// CONFIG_UART_TO_CAN_STATIC int can_state_command() {
+//   int err = 0;
+//   struct uart_message message;
+//   const char *command_response;
+//   enum can_state state;
+//   struct can_bus_err_cnt err_cnt;
+
+//   err = can_get_state(can_dev, &state, &err_cnt);
+//   if (err != 0) {
+//     LOG_ERR("Error getting CAN state: %d", err);
+//     goto reset_command_return;
+//   }
+//   switch (state) {
+//   case CAN_STATE_ERROR_ACTIVE:
+//     command_response = "A";
+//     break;
+//   case CAN_STATE_ERROR_WARNING:
+//     command_response = "W";
+//     break;
+//   case CAN_STATE_ERROR_PASSIVE:
+//     command_response = "P";
+//     break;
+//   case CAN_STATE_BUS_OFF:
+//     command_response = "O";
+//     break;
+//   case CAN_STATE_STOPPED:
+//     command_response = "S";
+//     break;
+//   default:
+//     command_response = "U";
+//     break;
+//   }
+//   message.buffer_size = strlen(command_response);
+//   memcpy(message.buffer, command_response, message.buffer_size);
+//   return send_command_status_via_uart(&message);
+// reset_command_return:
+//   return err;
+// }
+
+CONFIG_UART_TO_CAN_STATIC int reset_command() {
+  int err = 0;
+  enum can_state state;
+  struct can_bus_err_cnt err_cnt;
+
+  err = can_get_state(can_dev, &state, &err_cnt);
+  if (err != 0) {
+    LOG_ERR("Error getting CAN state: %d", err);
+    goto reset_command_return;
+  }
+  if (state == CAN_STATE_ERROR_ACTIVE) {
+    err = can_stop(can_dev);
+    if (err != 0) {
+      LOG_ERR("Error stopping CAN: %d", err);
+      goto reset_command_return;
+    }
+  }
+
+reset_command_return:
+  return err;
+}
+
 CONFIG_UART_TO_CAN_STATIC void
 print_buffer_without_clearing(struct ring_buf *buf) {
-  if (IS_ENABLED(CONFIG_LOGGING)) {
+  if (IS_ENABLED(CONFIG_LOG)) {
     uint8_t buffer[500];
     size_t bytes_read = ring_buf_peek(buf, buffer, 500);
     LOG_HEXDUMP_INF(buffer, bytes_read, "Dumping :");
@@ -185,7 +236,8 @@ print_buffer_without_clearing(struct ring_buf *buf) {
  *
  * @param buf Pointer to the ring buffer
  */
-CONFIG_UART_TO_CAN_STATIC void process_and_clear_command_data_uart_data(struct ring_buf *buf) {
+CONFIG_UART_TO_CAN_STATIC void
+process_and_clear_command_data_uart_data(struct ring_buf *buf) {
   int err = -1;
   const char *command_response;
   struct uart_message uart_message;
@@ -194,7 +246,7 @@ CONFIG_UART_TO_CAN_STATIC void process_and_clear_command_data_uart_data(struct r
     uint8_t command = ring_buf_get_char(buf);
     switch (command) {
 
-    case START_CAN:
+    case UART_CAN_COMMANDS_START_CAN:
       LOG_INF("Starting CAN");
       err = start_can_device(can_dev);
       command_response =
@@ -202,7 +254,7 @@ CONFIG_UART_TO_CAN_STATIC void process_and_clear_command_data_uart_data(struct r
       uart_message = string_to_uart_message(command_response);
       err = send_command_status_via_uart(&uart_message);
       break;
-    case STOP_CAN:
+    case UART_CAN_COMMANDS_STOP_CAN:
       LOG_INF("Stopping CAN");
       err = stop_can_device(can_dev);
       command_response =
@@ -210,7 +262,7 @@ CONFIG_UART_TO_CAN_STATIC void process_and_clear_command_data_uart_data(struct r
       uart_message = string_to_uart_message(command_response);
       err = send_command_status_via_uart(&uart_message);
       break;
-    case SET_BITRATE:
+    case UART_CAN_COMMANDS_SET_BITRATE:
       LOG_INF("Setting CAN Bitrate");
       err = set_bitrate(can_dev, ring_buf_get_char(buf));
       command_response =
@@ -221,7 +273,7 @@ CONFIG_UART_TO_CAN_STATIC void process_and_clear_command_data_uart_data(struct r
     case 's':
       // TODO (Matthew)
       break;
-    case SEND_11_BIT_CAN:
+    case UART_CAN_COMMANDS_SEND_11_BIT_CAN:
       LOG_INF("Send data to standard 11 bit CAN");
       err = parse_and_send_can_message_no_wait_11bit(buf);
       command_response =
@@ -229,7 +281,7 @@ CONFIG_UART_TO_CAN_STATIC void process_and_clear_command_data_uart_data(struct r
       uart_message = string_to_uart_message(command_response);
       err = send_command_status_via_uart(&uart_message);
       break;
-    case SEND_29_BIT_CAN:
+    case UART_CAN_COMMANDS_SEND_29_BIT_CAN:
       LOG_INF("Send data to standard 29 bit CAN");
       err = parse_and_send_can_message_no_wait_29bit(buf);
       command_response =
@@ -237,13 +289,21 @@ CONFIG_UART_TO_CAN_STATIC void process_and_clear_command_data_uart_data(struct r
       uart_message = string_to_uart_message(command_response);
       err = send_command_status_via_uart(&uart_message);
       break;
-    case VERSION:
+    case UART_CAN_COMMANDS_VERSION:
       LOG_INF("Version");
       err = send_version(uart_dev);
       break;
-    case HELP:
+    case UART_CAN_COMMANDS_HELP:
       LOG_INF("Help");
       // TODO (Matthew)
+      break;
+    case UART_CAN_COMMANDS_RESET:
+      LOG_INF("Reset");
+      err = reset_command();
+      command_response =
+          err == 0 ? COMMAND_RESPONSE_OKAY : COMMAND_RESPONSE_ERROR;
+      uart_message = string_to_uart_message(command_response);
+      err = send_command_status_via_uart(&uart_message);
       break;
     default:
       LOG_ERR("Unrecongnised command");
