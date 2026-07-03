@@ -31,9 +31,9 @@
   (1 + CAN_ID_29_BIT_BYTE_LENGHT + 1 + CAN_MAX_DLEN * 2 + 1)
 
 struct uart_message {
+  void *fifo_reserved; /* 1st word reserved for use by FIFO */
   uint8_t buffer[MAX_UART_CAN_FRAME];
   size_t buffer_size;
-
 };
 
 static inline struct uart_message string_to_uart_message(const char *string) {

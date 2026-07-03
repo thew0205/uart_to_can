@@ -28,5 +28,4 @@ enum UART_CAN_COMMANDS {
  * @return 0 if successful, <0 on error.
  */
 int init_uart_to_can(void);
-int send_uart_data_to_dev(const struct uart_message *message);
 #endif /* __UART_TO_CAN_H__ */

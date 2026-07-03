@@ -56,6 +56,9 @@ static uint8_t dma_buf_b[DMA_BUF_SIZE];
 RING_BUF_DECLARE(rx_ring_buffer, RX_BUF_SIZE);
 
 K_MEM_SLAB_DEFINE(uart_message_slab, sizeof(struct uart_message), 15, 4);
+K_FIFO_DEFINE(uart_message_fifo);
+
+int send_command_status_via_uart_handle_fifo(struct uart_message *message);
 
 static void uart_rx_reset_buffer_timer_fn(struct k_timer *timer_id) {
   ARG_UNUSED(timer_id);
@@ -367,7 +370,7 @@ process_and_clear_command_data_uart_data(struct ring_buf *buf) {
     default:
       LOG_ERR("Unrecongnised command");
       err = -ENOENT;
-     send_command_response(err);
+      send_command_response(err);
       break;
     }
     clear_buf_till_r(buf);
@@ -414,7 +417,14 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
     LOG_INF("UART event UART_TX_DONE type: %d\n", evt->type);
     struct uart_message *msg =
         CONTAINER_OF((void *)(evt->data.tx.buf), struct uart_message, buffer);
-    k_mem_slab_free(&uart_message_slab, msg);
+    k_mem_slab_free(&uart_message_slab, (void *)msg);
+
+    struct uart_message *msg_new =
+        (struct uart_message *)k_fifo_get(&uart_message_fifo, K_NO_WAIT);
+    if (msg_new != NULL) {
+      LOG_INF("Backlogged message wait to be sent");
+      send_command_status_via_uart_handle_fifo(msg_new);
+    }
     break;
 
   case UART_RX_RDY:
@@ -505,13 +515,25 @@ int init_uart_to_can(void) {
   return err;
 }
 
+int send_command_status_via_uart_handle_fifo(struct uart_message *message) {
+  int err;
+
+  err = uart_tx(uart_dev, message->buffer, message->buffer_size,
+                500 * message->buffer_size);
+  if (err == -EBUSY) {
+    k_fifo_put(&uart_message_fifo, message);
+    err = 0;
+  }
+  return err;
+}
+
 int send_command_status_via_uart(struct uart_message *message) {
   struct uart_message *block_ptr;
   int err;
   err = k_mem_slab_alloc(&uart_message_slab, (void **)&block_ptr, K_NO_WAIT);
 
   if (err != 0) {
-    LOG_ERR("Failed to get event from msgq");
+    LOG_ERR("Failed to get memory from slab");
     goto send_command_status_via_uart_return;
   }
 
@@ -521,8 +543,8 @@ int send_command_status_via_uart(struct uart_message *message) {
   LOG_INF("Sending uart message with len %d", block_ptr->buffer_size);
 
   LOG_HEXDUMP_INF(block_ptr->buffer, block_ptr->buffer_size, "Data");
-  err = uart_tx(uart_dev, block_ptr->buffer, block_ptr->buffer_size,
-                500 * block_ptr->buffer_size);
+
+  err = send_command_status_via_uart_handle_fifo(block_ptr);
   if (err < 0) {
     LOG_ERR("Failed to add message to UART msgq");
     k_mem_slab_free(&uart_message_slab, (void *)block_ptr);
