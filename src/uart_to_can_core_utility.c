@@ -26,7 +26,7 @@ LOG_MODULE_REGISTER(uart_to_can_core_utility, LOG_LEVEL_INF);
 extern struct k_mem_slab filter_id_list_slab;
 extern int *filter_ids_ptr_map[CONFIG_CAN_MAX_STD_ID_FILTERS +
                                CONFIG_CAN_MAX_EXT_ID_FILTERS];
-                               
+
 void can_rx_callback(const struct device *dev, struct can_frame *frame,
                      void *user_data);
 
@@ -34,7 +34,9 @@ bool ring_buf_has_wrapped(struct ring_buf *buf) {
   uint32_t free_space = ring_buf_size_get(buf);
   uint8_t *data;
   uint32_t claim_size = ring_buf_get_claim(buf, &data, free_space);
-  __ASSERT(!ring_buf_get_finish(buf, 0), "Failed to free ring buffer");
+  int err = ring_buf_get_finish(buf, 0);
+  __ASSERT(err == 0, "Failed to free ring buffer");
+  ARG_UNUSED(err);
   return claim_size < free_space;
 }
 
@@ -152,29 +154,31 @@ struct uart_message can_frame_to_uart_message(const struct can_frame *frame,
                                               int filter_id) {
   struct uart_message message;
   size_t offset = 0;
+  int err = 0;
   if (frame->flags & CAN_FRAME_IDE) {
     message.buffer[offset++] = 'R';
-    __ASSERT(snprintf(&message.buffer[offset], 9, "%08x", frame->id) == 8,
-             "Failed to write CAN ID to UART message buffer");
+    err = snprintf(&message.buffer[offset], 9, "%08x", frame->id);
+    __ASSERT(err == 8, "Failed to write CAN ID to UART message buffer");
     offset += 8;
   } else {
     message.buffer[offset++] = 'r';
-    __ASSERT(snprintf(&message.buffer[offset], 4, "%03x", frame->id) == 3,
-             "Failed to write CAN ID to UART message buffer");
+    err = snprintf(&message.buffer[offset], 4, "%03x", frame->id);
+    __ASSERT(err == 3, "Failed to write CAN ID to UART message buffer");
     offset += 3;
   }
 
-  __ASSERT(snprintf(&message.buffer[offset], 3, "%02x", filter_id) == 2,
-           "Failed to write CAN filter ID to UART message buffer");
+  err = snprintf(&message.buffer[offset], 3, "%02x", filter_id);
+  __ASSERT(err == 2, "Failed to write CAN filter ID to UART message buffer");
   offset += 2;
 
-  __ASSERT(snprintf(&message.buffer[offset], 2, "%01x", frame->dlc) == 1,
-           "Failed to write CAN DLC to UART message buffer");
+  err = snprintf(&message.buffer[offset], 2, "%01x",
+                 (uint8_t)(frame->dlc & 0x0F));
+  __ASSERT(err == 1, "Failed to write CAN DLC to UART message buffer");
   offset += 1;
 
   for (size_t i = 0; i < frame->dlc; i++) {
-    __ASSERT(snprintf(&message.buffer[offset], 3, "%02x", frame->data[i]) == 2,
-             "Failed to write CAN Data to UART message buffer");
+    err = snprintf(&message.buffer[offset], 3, "%02x", frame->data[i]);
+    __ASSERT(err == 2, "Failed to write CAN Data to UART message buffer");
     offset += 2;
   }
   message.buffer[offset++] = COMMAND_RESPONSE_OKAY[0];
@@ -240,7 +244,6 @@ int send_can_message_no_wait(const struct device *can_dev, uint32_t addr,
 send_can_message_return:
   return err;
 }
-
 
 int add_can_filter(const struct device *can_dev, uint32_t filter_id,
                    uint32_t filter_mask, bool is_extended_id) {

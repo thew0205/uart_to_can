@@ -42,6 +42,13 @@ static const struct device *uart_dev = DEVICE_DT_GET(UART_NODE);
 static uint8_t dma_buf_a[DMA_BUF_SIZE];
 static uint8_t dma_buf_b[DMA_BUF_SIZE];
 
+struct UartProcessWork {
+  struct k_work work;
+  bool buffer_overflowed;
+};
+
+static struct UartProcessWork uart_process_work;
+
 K_MEM_SLAB_DEFINE(filter_id_list_slab, sizeof(int),
                   CONFIG_CAN_MAX_STD_ID_FILTERS + CONFIG_CAN_MAX_EXT_ID_FILTERS,
                   4);
@@ -221,14 +228,18 @@ parse_and_remove_can_filter_return:
 
 CONFIG_UART_TO_CAN_STATIC int remove_all_can_filters() {
   int err = 0;
-  int max_filters = can_get_max_filters(can_dev, false);
-  for (int i = 0; i < max_filters; i++) {
+  for (int i = 0;
+       i < CONFIG_CAN_MAX_STD_ID_FILTERS + CONFIG_CAN_MAX_EXT_ID_FILTERS; i++) {
     can_remove_rx_filter(can_dev, i);
   }
-  max_filters = can_get_max_filters(can_dev, true);
-  for (int i = 0; i < max_filters; i++) {
-    can_remove_rx_filter(can_dev, i);
-  }
+  // int max_filters = can_get_max_filters(can_dev, false);
+  // for (int i = 0; i < max_filters; i++) {
+  //   can_remove_rx_filter(can_dev, i);
+  // }
+  // max_filters = can_get_max_filters(can_dev, true);
+  // for (int i = 0; i < max_filters; i++) {
+  //   can_remove_rx_filter(can_dev, i);
+  // }
   return err;
 }
 
@@ -344,10 +355,8 @@ CONFIG_UART_TO_CAN_STATIC void send_command_response(int err,
   struct uart_message uart_message;
 
   uart_message.buffer[0] = command_char;
-
-  __ASSERT(snprintf(&uart_message.buffer[1], 3, "%02x",
-                    (uint8_t)((err) & 0xFF)) == 2,
-           "Error formatting error code");
+  err = snprintf(&uart_message.buffer[1], 3, "%02x", (uint8_t)((err) & 0xFF));
+  assert(err == 2);//, "Error formatting error code");
   uart_message.buffer[3] = COMMAND_RESPONSE_OKAY[0];
   uart_message.buffer_size = 4;
 
@@ -377,7 +386,7 @@ CONFIG_UART_TO_CAN_STATIC void
 process_and_clear_command_data_uart_data(struct ring_buf *buf) {
   int err = -1;
   print_buffer_without_clearing(buf);
-  if (search_r_consider_wrap(buf) != INT_MIN) {
+  while (search_r_consider_wrap(buf) != INT_MIN) {
     enum UART_CAN_COMMANDS command = ring_buf_get_char(buf);
     switch (command) {
 
@@ -470,11 +479,11 @@ int copy_data_to_ring_buf(struct ring_buf *ring_buf, const uint8_t *const data,
     goto copy_data_to_ring_buf_return;
   }
 
-  if (bytes_written < data_len && ring_buf_size_get(ring_buf) > 0) {
+  if (bytes_written < data_len && ring_buf_space_get(ring_buf) > 0) {
     bytes_written2 =
         ring_buf_put_claim(ring_buf, &temp_data, data_len - bytes_written);
     memcpy(temp_data, &data[bytes_written], bytes_written2);
-    if (ring_buf_put_finish(ring_buf, bytes_written) != 0) {
+    if (ring_buf_put_finish(ring_buf, bytes_written2) != 0) {
       err = -1;
       goto copy_data_to_ring_buf_return;
     }
@@ -483,6 +492,22 @@ int copy_data_to_ring_buf(struct ring_buf *ring_buf, const uint8_t *const data,
 
 copy_data_to_ring_buf_return:
   return err;
+}
+
+void uart_process_work_handler(struct k_work *work) {
+  struct UartProcessWork *process_work =
+      CONTAINER_OF(work, struct UartProcessWork, work);
+  LOG_DBG("process_and_clear_command_data_uart_data");
+  // Perform complete commands possible
+  process_and_clear_command_data_uart_data(&rx_ring_buffer);
+  // clear command that might have possible values dropped.
+  if (process_work->buffer_overflowed) {
+    LOG_ERR("Ring buffer full! Dropping remaining bytes");
+    clear_buf_till_r(&rx_ring_buffer);
+    LOG_INF("Clearing ring buffer");
+    // TODO (Matthew): Send error
+  }
+  k_timer_start(&uart_rx_reset_buffer_timer, K_MSEC(1000), K_NO_WAIT);
 }
 
 CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
@@ -514,20 +539,10 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
     if (bytes_copied < 0) {
       LOG_ERR("Error with copying data to ring buf");
 
-    } else {
-      // Perform complete commands possible
-      process_and_clear_command_data_uart_data(&rx_ring_buffer);
-      // clear command that might have possible values dropped.
-      if ((size_t)bytes_copied < evt->data.rx.len) {
-        LOG_ERR("Ring buffer full! Dropped %d bytes.",
-                (evt->data.rx.len - bytes_copied));
-        clear_buf_till_r(&rx_ring_buffer);
-        LOG_INF("Clearing ring buffer");
-        // TODO (Matthew): Send error
-      }
-    }
+    } 
+    k_work_submit(&uart_process_work.work);
 
-    k_timer_start(&uart_rx_reset_buffer_timer, K_MSEC(1000), K_NO_WAIT);
+    
     break;
 
   case UART_RX_BUF_REQUEST:
@@ -589,6 +604,8 @@ int init_uart_to_can(void) {
        i++) {
     filter_ids_ptr_map[i] = NULL;
   }
+
+  k_work_init(&uart_process_work.work, uart_process_work_handler);
 
   return err;
 }
