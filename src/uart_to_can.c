@@ -230,7 +230,7 @@ CONFIG_UART_TO_CAN_STATIC int remove_all_can_filters() {
   int err = 0;
   for (int i = 0;
        i < CONFIG_CAN_MAX_STD_ID_FILTERS + CONFIG_CAN_MAX_EXT_ID_FILTERS; i++) {
-    can_remove_rx_filter(can_dev, i);
+    remove_can_filter(can_dev, i);
   }
   // int max_filters = can_get_max_filters(can_dev, false);
   // for (int i = 0; i < max_filters; i++) {
@@ -479,11 +479,11 @@ int copy_data_to_ring_buf(struct ring_buf *ring_buf, const uint8_t *const data,
     goto copy_data_to_ring_buf_return;
   }
 
-  if (bytes_written < data_len && ring_buf_size_get(ring_buf) > 0) {
+  if (bytes_written < data_len && ring_buf_space_get(ring_buf) > 0) {
     bytes_written2 =
         ring_buf_put_claim(ring_buf, &temp_data, data_len - bytes_written);
     memcpy(temp_data, &data[bytes_written], bytes_written2);
-    if (ring_buf_put_finish(ring_buf, bytes_written) != 0) {
+    if (ring_buf_put_finish(ring_buf, bytes_written2) != 0) {
       err = -1;
       goto copy_data_to_ring_buf_return;
     }
@@ -507,6 +507,7 @@ void uart_process_work_handler(struct k_work *work) {
     LOG_INF("Clearing ring buffer");
     // TODO (Matthew): Send error
   }
+  k_timer_start(&uart_rx_reset_buffer_timer, K_MSEC(1000), K_NO_WAIT);
 }
 
 CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
@@ -537,13 +538,9 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
         evt->data.rx.len);
     if (bytes_copied < 0) {
       LOG_ERR("Error with copying data to ring buf");
-    } else {
-      uart_process_work.buffer_overflowed =
-          (size_t)bytes_copied < evt->data.rx.len;
-      k_work_submit(&uart_process_work.work);
     }
+    k_work_submit(&uart_process_work.work);
 
-    k_timer_start(&uart_rx_reset_buffer_timer, K_MSEC(1000), K_NO_WAIT);
     break;
 
   case UART_RX_BUF_REQUEST:

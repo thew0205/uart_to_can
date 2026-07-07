@@ -34,7 +34,9 @@ bool ring_buf_has_wrapped(struct ring_buf *buf) {
   uint32_t free_space = ring_buf_size_get(buf);
   uint8_t *data;
   uint32_t claim_size = ring_buf_get_claim(buf, &data, free_space);
-  __ASSERT(!ring_buf_get_finish(buf, 0), "Failed to free ring buffer");
+  int err = ring_buf_get_finish(buf, 0);
+  __ASSERT(err == 0, "Failed to free ring buffer");
+  ARG_UNUSED(err);
   return claim_size < free_space;
 }
 
