@@ -30,6 +30,18 @@
 #define MAX_UART_CAN_FRAME                                                     \
   (1 + CAN_ID_29_BIT_BYTE_LENGHT + 1 + CAN_MAX_DLEN * 2 + 1)
 
+#if defined(CONFIG_CAN_STM32_BXCAN_MAX_STD_ID_FILTERS)
+#define CONFIG_CAN_MAX_STD_ID_FILTERS CONFIG_CAN_STM32_BXCAN_MAX_STD_ID_FILTERS
+#else
+#define CONFIG_CAN_MAX_STD_ID_FILTERS 5
+#endif
+
+#if defined(CONFIG_CAN_STM32_BXCAN_MAX_EXT_ID_FILTERS)
+#define CONFIG_CAN_MAX_EXT_ID_FILTERS CONFIG_CAN_STM32_BXCAN_MAX_EXT_ID_FILTERS
+#else
+#define CONFIG_CAN_MAX_EXT_ID_FILTERS 5
+#endif
+
 struct uart_message {
   void *fifo_reserved; /* 1st word reserved for use by FIFO */
   uint8_t buffer[MAX_UART_CAN_FRAME];
@@ -194,5 +206,6 @@ void clear_buf_till_r(struct ring_buf *buf);
  * @param frame The CAN frame to convert
  * @return The uart message
  */
-struct uart_message can_frame_to_uart_message(const struct can_frame *frame);
+struct uart_message can_frame_to_uart_message(const struct can_frame *frame, int filter_id);
+int remove_can_filter(const struct device *can_dev, int filter_id);
 #endif /* __UART_TO_CAN_CORE_UTILITY_H__ */

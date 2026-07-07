@@ -2,7 +2,6 @@
 
 #include "zephyr/sys/ring_buffer.h"
 #include "zephyr/toolchain.h"
-#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -24,6 +23,10 @@
 
 LOG_MODULE_REGISTER(uart_to_can_core_utility, LOG_LEVEL_INF);
 
+extern struct k_mem_slab filter_id_list_slab;
+extern int *filter_ids_ptr_map[CONFIG_CAN_MAX_STD_ID_FILTERS +
+                               CONFIG_CAN_MAX_EXT_ID_FILTERS];
+                               
 void can_rx_callback(const struct device *dev, struct can_frame *frame,
                      void *user_data);
 
@@ -31,7 +34,7 @@ bool ring_buf_has_wrapped(struct ring_buf *buf) {
   uint32_t free_space = ring_buf_size_get(buf);
   uint8_t *data;
   uint32_t claim_size = ring_buf_get_claim(buf, &data, free_space);
-  assert(!ring_buf_get_finish(buf, 0));
+  __ASSERT(!ring_buf_get_finish(buf, 0), "Failed to free ring buffer");
   return claim_size < free_space;
 }
 
@@ -145,28 +148,38 @@ set_bitrate_return:
   return err;
 }
 
-struct uart_message can_frame_to_uart_message(const struct can_frame *frame) {
+struct uart_message can_frame_to_uart_message(const struct can_frame *frame,
+                                              int filter_id) {
   struct uart_message message;
   size_t offset = 0;
   if (frame->flags & CAN_FRAME_IDE) {
-    message.buffer[offset++] = 'T';
-    assert(snprintf(&message.buffer[offset], 9, "%08x", frame->id) == 8);
+    message.buffer[offset++] = 'R';
+    __ASSERT(snprintf(&message.buffer[offset], 9, "%08x", frame->id) == 8,
+             "Failed to write CAN ID to UART message buffer");
     offset += 8;
   } else {
-    message.buffer[offset++] = 't';
-    assert(snprintf(&message.buffer[offset], 4, "%03x", frame->id) == 3);
+    message.buffer[offset++] = 'r';
+    __ASSERT(snprintf(&message.buffer[offset], 4, "%03x", frame->id) == 3,
+             "Failed to write CAN ID to UART message buffer");
     offset += 3;
   }
-  assert(snprintf(&message.buffer[offset], 2, "%01x", frame->dlc) == 1);
+
+  __ASSERT(snprintf(&message.buffer[offset], 3, "%02x", filter_id) == 2,
+           "Failed to write CAN filter ID to UART message buffer");
+  offset += 2;
+
+  __ASSERT(snprintf(&message.buffer[offset], 2, "%01x", frame->dlc) == 1,
+           "Failed to write CAN DLC to UART message buffer");
   offset += 1;
 
   for (size_t i = 0; i < frame->dlc; i++) {
-    assert(snprintf(&message.buffer[offset], 3, "%02x", frame->data[i]) == 2);
+    __ASSERT(snprintf(&message.buffer[offset], 3, "%02x", frame->data[i]) == 2,
+             "Failed to write CAN Data to UART message buffer");
     offset += 2;
   }
   message.buffer[offset++] = COMMAND_RESPONSE_OKAY[0];
   message.buffer_size = offset;
-  assert(offset <= MAX_UART_CAN_FRAME);
+  __ASSERT(offset <= MAX_UART_CAN_FRAME, "UART message buffer overflow");
   return message;
 }
 
@@ -228,6 +241,7 @@ send_can_message_return:
   return err;
 }
 
+
 int add_can_filter(const struct device *can_dev, uint32_t filter_id,
                    uint32_t filter_mask, bool is_extended_id) {
   const struct can_filter filter = {
@@ -236,15 +250,48 @@ int add_can_filter(const struct device *can_dev, uint32_t filter_id,
       .flags = is_extended_id ? CAN_FILTER_IDE : 0,
 
   };
- 
-  int err = can_add_rx_filter(can_dev, can_rx_callback, NULL, &filter);
 
-  if (err < 0) {
-    LOG_ERR("Failed to allocate or bind CAN hardware filter (err: %d)", err);
+  int *temp_filter_id_ptr;
+  int err = k_mem_slab_alloc(&filter_id_list_slab, (void **)&temp_filter_id_ptr,
+                             K_NO_WAIT);
+  if (err != 0) {
+    LOG_ERR("Failed to allocate filter (err: %d)", err);
     goto add_can_filter_return;
   }
-  err = 0;
+
+  err =
+      can_add_rx_filter(can_dev, can_rx_callback, temp_filter_id_ptr, &filter);
+
+  if (err < 0) {
+    k_mem_slab_free(&filter_id_list_slab, temp_filter_id_ptr);
+    LOG_ERR("Failed to bind CAN hardware filter (err: %d)", err);
+    goto add_can_filter_return;
+  }
+  *temp_filter_id_ptr = err;
+  filter_ids_ptr_map[err] = temp_filter_id_ptr;
 add_can_filter_return:
+  return err;
+}
+
+int remove_can_filter(const struct device *can_dev, int filter_id) {
+  int err = 0;
+  if (filter_id >=
+      (CONFIG_CAN_MAX_STD_ID_FILTERS + CONFIG_CAN_MAX_EXT_ID_FILTERS)) {
+    LOG_ERR("Invalid CAN filter ID");
+    err = -1;
+    goto remove_can_filter_return;
+  }
+
+  if (filter_ids_ptr_map[filter_id] == NULL) {
+    LOG_ERR("Invalid CAN filter ID");
+    err = -1;
+    goto remove_can_filter_return;
+  }
+
+  can_remove_rx_filter(can_dev, filter_id);
+  k_mem_slab_free(&filter_id_list_slab, filter_ids_ptr_map[filter_id]);
+  filter_ids_ptr_map[filter_id] = NULL;
+remove_can_filter_return:
   return err;
 }
 
