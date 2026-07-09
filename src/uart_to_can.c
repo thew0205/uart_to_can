@@ -256,6 +256,19 @@ parse_and_remove_all_can_filters_return:
   return err;
 }
 
+CONFIG_UART_TO_CAN_STATIC void send_command_response(int err,
+                                                     char command_char) {
+  struct uart_message uart_message;
+
+  uart_message.buffer[0] = command_char;
+  err = snprintf(&uart_message.buffer[1], 3, "%02x", (uint8_t)((err) & 0xFF));
+  __ASSERT(err == 2, "Error formatting error code");
+  uart_message.buffer[3] = COMMAND_RESPONSE_OKAY[0];
+  uart_message.buffer_size = 4;
+
+  err = send_command_status_via_uart(&uart_message);
+}
+
 void can_rx_callback(const struct device *dev, struct can_frame *frame,
                      void *user_data) {
   (void)user_data;
@@ -267,6 +280,19 @@ void can_rx_callback(const struct device *dev, struct can_frame *frame,
   // k_msgq_put(&can_data_msgq, frame, K_NO_WAIT);
   send_can_message_to_uart(frame, filter_id);
 }
+
+void can_tx_callback(__maybe_unused const struct device *dev, int err,
+                            void *user_data) {
+  char *sender = (char *)user_data;
+
+  if (err != 0) {
+    LOG_ERR("Sending failed from %s with [%d]", sender, err);
+  } else {
+    LOG_DBG("Sent succuss from %s with [%d]", sender, err);
+  }
+  send_command_response(err, sender[0]);
+}
+
 
 CONFIG_UART_TO_CAN_STATIC int send_version() {
   struct uart_message message;
@@ -350,18 +376,6 @@ print_buffer_without_clearing(struct ring_buf *buf) {
   }
 }
 
-CONFIG_UART_TO_CAN_STATIC void send_command_response(int err,
-                                                     char command_char) {
-  struct uart_message uart_message;
-
-  uart_message.buffer[0] = command_char;
-  err = snprintf(&uart_message.buffer[1], 3, "%02x", (uint8_t)((err) & 0xFF));
-  __ASSERT(err == 2, "Error formatting error code");
-  uart_message.buffer[3] = COMMAND_RESPONSE_OKAY[0];
-  uart_message.buffer_size = 4;
-
-  err = send_command_status_via_uart(&uart_message);
-}
 
 // CONFIG_UART_TO_CAN_STATIC void
 // send_command_add_filter_response(int filter_id, char command_char) {
@@ -411,12 +425,21 @@ process_and_clear_command_data_uart_data(struct ring_buf *buf) {
     case UART_CAN_COMMANDS_SEND_11_BIT_CAN:
       LOG_INF("Send data to standard 11 bit CAN");
       err = parse_and_send_can_message_no_wait_11bit(buf);
-      send_command_response(err, command);
+      // if err then there is not enough space in the can_tx_mail_box and the issue is from the driver and the driver should clear it callback mailbox
+      if (err != 0) {
+        LOG_ERR("Failed to send CAN message: %d", err);
+        err = 0xFF;
+        send_command_response(err, command);
+      }
       break;
     case UART_CAN_COMMANDS_SEND_29_BIT_CAN:
       LOG_INF("Send data to standard 29 bit CAN");
       err = parse_and_send_can_message_no_wait_29bit(buf);
-      send_command_response(err, command);
+      if (err != 0) {
+        LOG_ERR("Failed to send CAN message: %d", err);
+        err = 0xFF;
+        send_command_response(err, command);
+      }
       break;
     case UART_CAN_COMMANDS_VERSION:
       LOG_INF("Version");

@@ -30,6 +30,9 @@ extern int *filter_ids_ptr_map[CONFIG_CAN_MAX_STD_ID_FILTERS +
 void can_rx_callback(const struct device *dev, struct can_frame *frame,
                      void *user_data);
 
+void can_tx_callback(__maybe_unused const struct device *dev, int err,
+                     void *user_data);
+
 bool ring_buf_has_wrapped(struct ring_buf *buf) {
   uint32_t free_space = ring_buf_size_get(buf);
   uint8_t *data;
@@ -187,17 +190,6 @@ struct uart_message can_frame_to_uart_message(const struct can_frame *frame,
   return message;
 }
 
-static void can_tx_callback(__maybe_unused const struct device *dev, int err,
-                            void *user_data) {
-  char *sender = (char *)user_data;
-
-  if (err != 0) {
-    LOG_ERR("Sending failed from %s with [%d]", sender, err);
-  } else {
-    LOG_DBG("Sent succuss from %s with [%d]", sender, err);
-  }
-}
-
 int send_can_message_no_wait(const struct device *can_dev, uint32_t addr,
                              const uint8_t data[], uint8_t data_size,
                              bool is_extended_id, bool is_rtr) {
@@ -234,7 +226,7 @@ int send_can_message_no_wait(const struct device *can_dev, uint32_t addr,
   LOG_HEXDUMP_DBG(data, data_size, "My CAN Data Buffer:%s");
 
   err = can_send(can_dev, &frame, K_NO_WAIT, can_tx_callback,
-                 "send_message_to_battery_can_no_wait");
+                 is_extended_id ? "T" : "t");
   if (err != 0) {
     LOG_ERR("Failed to enqueue CAN frame (err %d)", err);
     // TODO (Matthew): What could cause CAN to fail
