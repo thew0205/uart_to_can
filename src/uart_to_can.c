@@ -422,6 +422,8 @@ print_buffer_without_clearing(struct ring_buf *buf)
   {
     uint8_t buffer[500];
     size_t bytes_read = ring_buf_peek(buf, buffer, 500);
+    LOG_INF("Buffer space: %d, Buffer size: %d", ring_buf_space_get(buf),
+            ring_buf_size_get(buf));
     LOG_HEXDUMP_INF(buffer, bytes_read, "Dumping recieve buffer:");
   }
 }
@@ -542,37 +544,32 @@ process_and_clear_command_data_uart_data(struct ring_buf *buf)
   }
 }
 
-int copy_data_to_ring_buf(struct ring_buf *ring_buf, const uint8_t *const data,
+int copy_data_to_ring_buf(struct ring_buf *ring_buf, const uint8_t *data,
                           size_t data_len)
 {
-  // TODO (Matthew): Change to a while loop implementation
-  uint8_t *temp_data;
-  int err;
-  uint32_t bytes_written2 = 0;
+  size_t total_written = 0;
 
-  uint32_t bytes_written = ring_buf_put_claim(ring_buf, &temp_data, data_len);
-  memcpy(temp_data, data, bytes_written);
-  if (ring_buf_put_finish(ring_buf, bytes_written) != 0)
+  while (total_written < data_len)
   {
-    err = -1;
-    goto copy_data_to_ring_buf_return;
-  }
+    uint8_t *dst = NULL;
+    uint32_t claimed = ring_buf_put_claim(ring_buf, &dst, data_len - total_written);
 
-  if (bytes_written < data_len && ring_buf_space_get(ring_buf) > 0)
-  {
-    bytes_written2 =
-        ring_buf_put_claim(ring_buf, &temp_data, data_len - bytes_written);
-    memcpy(temp_data, &data[bytes_written], bytes_written2);
-    if (ring_buf_put_finish(ring_buf, bytes_written2) != 0)
+    if (claimed == 0)
     {
-      err = -1;
-      goto copy_data_to_ring_buf_return;
+      break;
     }
-  }
-  err = bytes_written + bytes_written2;
 
-copy_data_to_ring_buf_return:
-  return err;
+    memcpy(dst, &data[total_written], claimed);
+
+    if (ring_buf_put_finish(ring_buf, claimed) != 0)
+    {
+      return -1;
+    }
+
+    total_written += claimed;
+  }
+
+  return total_written == data_len ? (int)total_written : -ENOSPC;
 }
 
 void uart_process_work_handler(struct k_work *work)
@@ -619,12 +616,13 @@ CONFIG_UART_TO_CAN_STATIC void uart_cb(const struct device *dev,
 
   case UART_RX_RDY:
     LOG_DBG("UART event UART_RX_RDY type: %d\n", evt->type);
-    int bytes_copied = copy_data_to_ring_buf(
-        &rx_ring_buffer, &evt->data.rx.buf[evt->data.rx.offset],
-        evt->data.rx.len);
-    if (bytes_copied < 0)
+    int bytes_copied = copy_data_to_ring_buf(&rx_ring_buffer,
+                                             &evt->data.rx.buf[evt->data.rx.offset],
+                                             evt->data.rx.len);
+    if (bytes_copied != (int)evt->data.rx.len)
     {
-      LOG_ERR("Error with copying data to ring buf");
+      LOG_ERR("RX overflow: copied %d of %d bytes", bytes_copied, evt->data.rx.len);
+      uart_process_work.buffer_overflowed = true;
     }
     k_work_submit(&uart_process_work.work);
 
