@@ -21,13 +21,14 @@
 #define COMMAND_RESPONSE_OKAY "\r"
 #define COMMAND_RESPONSE_ERROR "\a"
 
-#define FULL_VERSION_RESPONSE                                                  \
-  STRINGIFY(HARDWARE_VERSION_MAJOR)                                            \
-  STRINGIFY(HARDWARE_VERSION_MINOR)                                            \
-  STRINGIFY(SOFTWARE_VERSION_MAJOR)                                            \
-  STRINGIFY(SOFTWARE_VERSION_MINOR) COMMAND_RESPONSE_OKAY
+#define FULL_VERSION_RESPONSE       \
+  STRINGIFY(HARDWARE_VERSION_MAJOR) \
+  STRINGIFY(HARDWARE_VERSION_MINOR) \
+  STRINGIFY(SOFTWARE_VERSION_MAJOR) \
+  STRINGIFY(SOFTWARE_VERSION_MINOR) \
+  COMMAND_RESPONSE_OKAY
 
-#define MAX_UART_CAN_FRAME                                                     \
+#define MAX_UART_CAN_FRAME \
   (1 + CAN_ID_29_BIT_BYTE_LENGHT + 2 + 1 + CAN_MAX_DLEN * 2 + 1)
 
 #if defined(CONFIG_CAN_STM32_BXCAN_MAX_STD_ID_FILTERS)
@@ -42,13 +43,15 @@
 #define CONFIG_CAN_MAX_EXT_ID_FILTERS 5
 #endif
 
-struct uart_message {
+struct uart_message
+{
   void *fifo_reserved; /* 1st word reserved for use by FIFO */
   uint8_t buffer[MAX_UART_CAN_FRAME];
   size_t buffer_size;
 };
 
-static inline struct uart_message string_to_uart_message(const char *string) {
+static inline struct uart_message string_to_uart_message(const char *string)
+{
   struct uart_message uart_message;
   uart_message.buffer_size = strlen(string);
   assert((size_t)snprintf(uart_message.buffer, MAX_UART_CAN_FRAME, "%s",
@@ -62,7 +65,8 @@ static inline struct uart_message string_to_uart_message(const char *string) {
  * @param buf Pointer to the ring buffer
  * @return the next byte in the ring buffer
  */
-static inline uint8_t ring_buf_get_char(struct ring_buf *buf) {
+static inline uint8_t ring_buf_get_char(struct ring_buf *buf)
+{
   uint8_t data;
   assert(ring_buf_get(buf, &data, 1) == 1);
   return data;
@@ -70,17 +74,20 @@ static inline uint8_t ring_buf_get_char(struct ring_buf *buf) {
 
 static inline bool ring_buf_get_char_to_uint(struct ring_buf *buf,
                                              uint8_t num_of_bytes, int base,
-                                             unsigned long *out_val) {
+                                             unsigned long *out_val)
+{
   char data[num_of_bytes + 1];
   char *temp_data;
   unsigned long temp_val;
-  for (uint32_t i = 0; i < num_of_bytes; i++) {
+  for (uint32_t i = 0; i < num_of_bytes; i++)
+  {
     data[i] = ring_buf_get_char(buf);
   }
   data[num_of_bytes] = '\0';
   temp_val = strtoul(data, &temp_data, base);
 
-  if ((uintptr_t)temp_data != (uintptr_t)data) {
+  if ((uintptr_t)temp_data != (uintptr_t)data)
+  {
     *out_val = temp_val;
     return true;
   }
@@ -88,17 +95,20 @@ static inline bool ring_buf_get_char_to_uint(struct ring_buf *buf,
 }
 
 static inline bool ring_buf_get_hex_to_uint8_t(struct ring_buf *buf,
-                                               uint8_t *out_val) {
+                                               uint8_t *out_val)
+{
   char data[2 + 1];
   char *temp_data;
   unsigned long temp_val;
-  for (uint32_t i = 0; i < 2; i++) {
+  for (uint32_t i = 0; i < 2; i++)
+  {
     data[i] = ring_buf_get_char(buf);
   }
   data[2] = '\0';
   temp_val = strtoul(data, &temp_data, 16);
 
-  if ((uintptr_t)temp_data != (uintptr_t)data) {
+  if ((uintptr_t)temp_data != (uintptr_t)data)
+  {
     *out_val = temp_val;
     return true;
   }
@@ -106,17 +116,20 @@ static inline bool ring_buf_get_hex_to_uint8_t(struct ring_buf *buf,
 }
 
 static inline bool ring_buf_get_hex_to_uint32_t(struct ring_buf *buf,
-                                               uint32_t *out_val) {
+                                                uint32_t *out_val)
+{
   char data[8 + 1];
   char *temp_data;
   unsigned long temp_val;
-  for (uint32_t i = 0; i < 8; i++) {
+  for (uint32_t i = 0; i < 8; i++)
+  {
     data[i] = ring_buf_get_char(buf);
   }
   data[8] = '\0';
   temp_val = strtoul(data, &temp_data, 16);
 
-  if ((uintptr_t)temp_data != (uintptr_t)data) {
+  if ((uintptr_t)temp_data != (uintptr_t)data)
+  {
     *out_val = temp_val;
     return true;
   }
@@ -198,7 +211,6 @@ int send_command_status_via_uart(struct uart_message *message);
 '\r', it clears the whole buffer
 */
 void clear_buf_till_r(struct ring_buf *buf);
-
 
 /**
  * @brief Converts a CAN frame to a uart message

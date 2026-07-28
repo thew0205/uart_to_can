@@ -8,7 +8,8 @@
 
 #include "uart_to_can_core_utility.h"
 /* Enum definition from supported commands. */
-enum UART_CAN_COMMANDS {
+enum UART_CAN_COMMANDS
+{
   UART_CAN_COMMANDS_START_CAN = 'O',
   UART_CAN_COMMANDS_STOP_CAN = 'C',
   UART_CAN_COMMANDS_SET_BITRATE = 'S',
