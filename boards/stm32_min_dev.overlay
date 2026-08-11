@@ -21,7 +21,7 @@
 
 can_device: &can1 {
 	status = "okay";
-	bitrate = <250000>;
+	bitrate = <1000000>;
 	pinctrl-0 = <&can_device_rx_pb8 &can_device_tx_pb9>;
 	pinctrl-names = "default";
 };
@@ -36,7 +36,7 @@ usart_rs485: &usart1 {
 	status = "okay";
 	pinctrl-0 = <&usart_rs485_tx_pa9 &usart_rs485_rx_pa10>;
 	pinctrl-names = "default";
-	current-speed = <115200>;
+	current-speed = <460800>;
 	/* Format: <&dma_controller_phandle channel channel_config> */
 	dmas = <&dma1 4 STM32_DMA_PERIPH_TX>,  /* USART1_TX is fixed to Channel 4 */
 	       <&dma1 5 STM32_DMA_PERIPH_RX>;  /* USART1_RX is fixed to Channel 5 */

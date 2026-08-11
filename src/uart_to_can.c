@@ -424,6 +424,8 @@ print_buffer_without_clearing(struct ring_buf *buf)
     size_t bytes_read = ring_buf_peek(buf, buffer, 500);
     LOG_INF("Buffer space: %d, Buffer size: %d", ring_buf_space_get(buf),
             ring_buf_size_get(buf));
+    LOG_INF("Buffer space: %d, Buffer size: %d", ring_buf_space_get(buf),
+            ring_buf_size_get(buf));
     LOG_HEXDUMP_INF(buffer, bytes_read, "Dumping recieve buffer:");
   }
 }
@@ -451,9 +453,9 @@ CONFIG_UART_TO_CAN_STATIC void
 process_and_clear_command_data_uart_data(struct ring_buf *buf)
 {
   int err = -1;
-  print_buffer_without_clearing(buf);
   while (search_r_consider_wrap(buf) != INT_MIN)
   {
+    print_buffer_without_clearing(buf);
     enum UART_CAN_COMMANDS command = ring_buf_get_char(buf);
     switch (command)
     {
