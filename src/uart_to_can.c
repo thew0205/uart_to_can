@@ -485,7 +485,7 @@ process_and_clear_command_data_uart_data(struct ring_buf *buf)
       if (err != 0)
       {
         LOG_ERR("Failed to send CAN message: %d", err);
-        err = -1;
+        err = -EPERM;
         send_command_response(err, command);
       }
       break;
@@ -495,7 +495,7 @@ process_and_clear_command_data_uart_data(struct ring_buf *buf)
       if (err != 0)
       {
         LOG_ERR("Failed to send CAN message: %d", err);
-        err = -1;
+        err = -EPERM;
         send_command_response(err, command);
       }
       break;
